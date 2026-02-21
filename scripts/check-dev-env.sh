@@ -102,52 +102,47 @@ fi
 
 # === 3. Machine tools ===
 
-echo -e "\n${BLUE}Verifying machine tools...${NC}"
+echo -e "\n${BLUE}Installing/verifying machine tools...${NC}"
 
 # chezmoi (dotfile manager)
-if command -v chezmoi &>/dev/null; then
-    chezmoi_version=$(chezmoi --version 2>/dev/null | awk '{print $3}' | tr -d 'v,' || echo "unknown")
-    echo -e "${GREEN}✓${NC} chezmoi ($chezmoi_version)"
-else
-    echo -e "${YELLOW}!${NC} chezmoi not installed"
-    echo -e "  Install with: ${YELLOW}brew install chezmoi${NC}"
+if ! command -v chezmoi &>/dev/null; then
+    echo -e "${BLUE}Installing chezmoi...${NC}"
+    brew install chezmoi
 fi
+chezmoi_version=$(chezmoi --version 2>/dev/null | awk '{print $3}' | tr -d 'v,' || echo "unknown")
+echo -e "${GREEN}✓${NC} chezmoi ($chezmoi_version)"
 
 # starship (prompt)
-if command -v starship &>/dev/null; then
-    starship_version=$(starship --version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")
-    echo -e "${GREEN}✓${NC} starship ($starship_version)"
-else
-    echo -e "${YELLOW}!${NC} starship not installed"
-    echo -e "  Install with: ${YELLOW}brew install starship${NC}"
+if ! command -v starship &>/dev/null; then
+    echo -e "${BLUE}Installing starship...${NC}"
+    brew install starship
 fi
+starship_version=$(starship --version 2>/dev/null | head -1 | awk '{print $2}' || echo "unknown")
+echo -e "${GREEN}✓${NC} starship ($starship_version)"
 
 # tmux
-if command -v tmux &>/dev/null; then
-    tmux_version=$(tmux -V 2>/dev/null | awk '{print $2}')
-    echo -e "${GREEN}✓${NC} tmux ($tmux_version)"
-else
-    echo -e "${YELLOW}!${NC} tmux not installed"
-    echo -e "  Install with: ${YELLOW}brew install tmux${NC}"
+if ! command -v tmux &>/dev/null; then
+    echo -e "${BLUE}Installing tmux...${NC}"
+    brew install tmux
 fi
+tmux_version=$(tmux -V 2>/dev/null | awk '{print $2}')
+echo -e "${GREEN}✓${NC} tmux ($tmux_version)"
 
 # VS Code
-if [ -d "/Applications/Visual Studio Code.app" ]; then
-    vscode_version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "/Applications/Visual Studio Code.app/Contents/Info.plist" 2>/dev/null || echo "unknown")
-    echo -e "${GREEN}✓${NC} VS Code ($vscode_version)"
-else
-    echo -e "${YELLOW}!${NC} VS Code not installed"
-    echo -e "  Install from: ${YELLOW}https://code.visualstudio.com${NC}"
+if ! [ -d "/Applications/Visual Studio Code.app" ]; then
+    echo -e "${BLUE}Installing VS Code...${NC}"
+    brew install --cask visual-studio-code
 fi
+vscode_version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "/Applications/Visual Studio Code.app/Contents/Info.plist" 2>/dev/null || echo "unknown")
+echo -e "${GREEN}✓${NC} VS Code ($vscode_version)"
 
 # Neovim
-if command -v nvim &>/dev/null; then
-    nvim_version=$(nvim --version 2>/dev/null | head -1 | awk '{print $2}' | tr -d 'v' || echo "unknown")
-    echo -e "${GREEN}✓${NC} Neovim ($nvim_version)"
-else
-    echo -e "${YELLOW}!${NC} Neovim not installed"
-    echo -e "  Install with: ${YELLOW}brew install neovim${NC}"
+if ! command -v nvim &>/dev/null; then
+    echo -e "${BLUE}Installing neovim...${NC}"
+    brew install neovim
 fi
+nvim_version=$(nvim --version 2>/dev/null | head -1 | awk '{print $2}' | tr -d 'v' || echo "unknown")
+echo -e "${GREEN}✓${NC} Neovim ($nvim_version)"
 
 # === 4. Claude Code ===
 
@@ -156,7 +151,7 @@ if ! command -v claude &>/dev/null; then
         export PATH="$HOME/.local/bin:$PATH"
     else
         echo -e "${BLUE}Installing Claude Code...${NC}"
-        curl -fsSL https://claude.ai/install.sh | bash
+        curl -fsSL https://claude.ai/install.sh | bash >/dev/null
         export PATH="$HOME/.local/bin:$PATH"
     fi
 fi

@@ -8,17 +8,21 @@ All scripts run on the **host machine**. For scripts that run inside a guest VM,
 
 This toolset covers the full VM provisioning lifecycle:
 1. Host machine setup (`Brewfile`)
-2. VM user creation (`create-tart-user2.sh`)
-3. VS Code web access via app shim (`setup-vscode-webapp.sh`)
-4. Icon customization (`update-icon.sh`, `iconoverlay.swift`)
+2. VM provisioning from a base image (`provision-vm.sh`)
+3. VM user creation (`create-tart-user2.sh`)
+4. VM deletion (`delete-vm.sh`)
+5. VS Code web access via app shim (`setup-vscode-webapp.sh`)
+6. Icon customization (`update-icon.sh`, `iconoverlay.swift`)
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
+| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, configure git, clone guest-tools |
+| `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-tart-user.sh` | Basic script to create a user on a running Tart VM |
-| `create-tart-user2.sh` | Enhanced version with CREATE/DELETE modes and better validation |
+| `create-tart-user2.sh` | Enhanced version with CREATE/DELETE modes, `--admin` flag, and non-interactive mode |
 | `host-provisioning-jobs.txt` | Manual one-time host setup tasks (e.g. `mkdir -p ~/.ssh/sockets`) |
 | `iconoverlay.swift` | Swift utility that overlays text onto `.icns` icon files |
 | `setup-vscode-webapp.sh` | Creates a standalone macOS `.app` shim for VS Code in a VM |
@@ -35,6 +39,21 @@ This toolset covers the full VM provisioning lifecycle:
 - Standard macOS tools: `sips`, `iconutil`, `codesign`, `curl`, `ssh`
 
 ## Common Tasks
+
+### Provision a new VM
+```bash
+./provision-vm.sh <vm-name>                        # clone from cirruslabs base, 75 GB disk
+./provision-vm.sh <vm-name> --disk 100             # custom disk size
+./provision-vm.sh <vm-name> --base <image>         # custom base image
+./provision-vm.sh <vm-name> --headless             # no UI window
+```
+Prompts for: VM user password, GitHub token (for guest-tools clone).
+Requires an SSH key pair on the host (`~/.ssh/id_ed25519`) for passwordless VM access.
+
+### Delete a VM
+```bash
+./delete-vm.sh <vm-name>    # stops if running, then deletes
+```
 
 ### Create a user on a VM
 ```bash
@@ -72,6 +91,8 @@ brew bundle
 ## Notes
 
 - Shell scripts use `set -euo pipefail` for strict error handling.
+- `provision-vm.sh` uses SSH ControlMaster for the `admin@` account to avoid repeated password prompts; the new user account uses key-based auth after the SSH key is installed.
+- `provision-vm.sh` configures `git credential cache` (15-day TTL) on the guest; first `git` operation after a reboot will prompt for the GitHub token.
 - `create-tart-user2.sh` is the production-ready version; prefer it over `create-tart-user.sh`.
 - SSH connections disable `StrictHostKeyChecking` for VM access (expected — VM IPs change).
 - `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration; guest devenv scripts should do the same when attaching.

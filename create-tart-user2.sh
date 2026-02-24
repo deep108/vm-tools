@@ -3,15 +3,17 @@ set -euo pipefail
 
 usage() {
     echo "Usage:"
-    echo "  $0 <vm-name> <username> [password]       Create a user"
-    echo "  $0 -d <vm-name> <username>               Delete a user"
+    echo "  $0 <vm-name> <username> [password] [--admin]   Create a user"
+    echo "  $0 -d <vm-name> <username>                     Delete a user"
     echo ""
     echo "Options:"
     echo "  -d, --delete    Delete the specified user instead of creating"
+    echo "  --admin         Grant admin privileges without prompting"
     exit 1
 }
 
 DELETE_MODE=false
+MAKE_ADMIN_FLAG=false
 
 # Check for delete flag
 if [[ "${1:-}" == "-d" || "${1:-}" == "--delete" ]]; then
@@ -22,6 +24,17 @@ fi
 VM_NAME="${1:-}"
 TARGET_USER="${2:-}"
 PASSWORD="${3:-}"
+PASSWORD_WAS_PROVIDED=false
+[[ -n "$PASSWORD" ]] && PASSWORD_WAS_PROVIDED=true
+
+# Parse remaining flags (after positional args)
+shift 3 2>/dev/null || true
+for arg in "$@"; do
+    case "$arg" in
+        --admin) MAKE_ADMIN_FLAG=true ;;
+        *) echo "Unknown option: $arg"; usage ;;
+    esac
+done
 
 [[ -z "$VM_NAME" || -z "$TARGET_USER" ]] && usage
 
@@ -33,7 +46,11 @@ VM_IP=$(tart ip "$VM_NAME" 2>/dev/null) || {
 
 # Helper function to run SSH commands with proper error handling
 run_ssh() {
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "admin@${VM_IP}" "$@"
+    local control_opts=()
+    if [[ -n "${SSH_CONTROL_PATH:-}" ]]; then
+        control_opts=(-o ControlMaster=no -o "ControlPath=${SSH_CONTROL_PATH}")
+    fi
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${control_opts[@]}" "admin@${VM_IP}" "$@"
 }
 
 # --- DELETE MODE ---
@@ -93,15 +110,21 @@ if [[ -z "$PASSWORD" ]]; then
     done
 fi
 
-# Prompt for optional full name
-read -p "Full name (leave blank to use '$TARGET_USER'): " FULL_NAME
+# Prompt for optional full name (skip when password was provided as arg — non-interactive mode)
+if [[ "$PASSWORD_WAS_PROVIDED" == false ]]; then
+    read -p "Full name (leave blank to use '$TARGET_USER'): " FULL_NAME
+fi
 FULL_NAME="${FULL_NAME:-$TARGET_USER}"
 
-# Prompt for admin privileges
-read -p "Make user an admin? [y/N]: " MAKE_ADMIN
+# Prompt for admin privileges (skip when --admin flag was passed)
 ADMIN_FLAG=""
-if [[ "$MAKE_ADMIN" =~ ^[Yy]$ ]]; then
+if [[ "$MAKE_ADMIN_FLAG" == true ]]; then
     ADMIN_FLAG="-admin"
+else
+    read -p "Make user an admin? [y/N]: " MAKE_ADMIN
+    if [[ "$MAKE_ADMIN" =~ ^[Yy]$ ]]; then
+        ADMIN_FLAG="-admin"
+    fi
 fi
 
 echo "Creating user '$TARGET_USER' on $VM_NAME ($VM_IP)..."

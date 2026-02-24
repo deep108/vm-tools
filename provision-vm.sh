@@ -205,7 +205,7 @@ for key_file in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
     fi
 done
 if [[ -n "$SSH_PUBKEY" ]]; then
-    ssh_admin "sudo -u '$HOST_USER' bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo \"$SSH_PUBKEY\" > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'"
+    ssh_admin "sudo -Hu '$HOST_USER' bash -c 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo \"$SSH_PUBKEY\" > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys'"
     echo "      Done."
 else
     echo "      Warning: no SSH public key found in ~/.ssh — skipping. Guest-tools clone may fail."
@@ -234,6 +234,20 @@ ssh_user "mkdir -p ~/dev \
      && git clone https://${GITHUB_TOKEN}@github.com/deep108/guest-tools.git ~/dev/guest-tools \
      && git -C ~/dev/guest-tools remote set-url origin https://github.com/deep108/guest-tools.git"
 echo "      guest-tools cloned."
+
+# --- Transfer Homebrew ownership ---
+echo "[+] Checking for Homebrew..."
+if ssh_admin "test -d /opt/homebrew"; then
+    echo "      Found — transferring ownership to '$HOST_USER'..."
+    ssh_admin "sudo chown -R '$HOST_USER':staff /opt/homebrew"
+    echo "      Done."
+else
+    echo "      /opt/homebrew not found — skipping."
+fi
+
+# --- Run check-dev-env ---
+echo "[+] Running guest-tools/scripts/check-dev-env.sh..."
+ssh_user "bash ~/dev/guest-tools/scripts/check-dev-env.sh"
 
 # --- Summary ---
 close_ssh_masters

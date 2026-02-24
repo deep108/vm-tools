@@ -19,7 +19,7 @@ This toolset covers the full VM provisioning lifecycle:
 | File | Purpose |
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
-| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, configure git, clone guest-tools |
+| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, configure git, clone guest-tools, transfer Homebrew ownership, run check-dev-env |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-tart-user.sh` | Basic script to create a user on a running Tart VM |
 | `create-tart-user2.sh` | Enhanced version with CREATE/DELETE modes, `--admin` flag, and non-interactive mode |
@@ -93,6 +93,7 @@ brew bundle
 - Shell scripts use `set -euo pipefail` for strict error handling.
 - `provision-vm.sh` uses SSH ControlMaster for the `admin@` account to avoid repeated password prompts; the new user account uses key-based auth after the SSH key is installed.
 - `provision-vm.sh` configures `git credential cache` (15-day TTL) on the guest; first `git` operation after a reboot will prompt for the GitHub token.
+- The cirruslabs `macos-tahoe-base` image ships with Homebrew at `/opt/homebrew` owned by `admin`; `provision-vm.sh` transfers ownership to the new user so Homebrew works without sudo.
 - `create-tart-user2.sh` is the production-ready version; prefer it over `create-tart-user.sh`.
 - SSH connections disable `StrictHostKeyChecking` for VM access (expected — VM IPs change).
 - `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration; guest devenv scripts should do the same when attaching.

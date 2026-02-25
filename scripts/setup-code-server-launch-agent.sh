@@ -110,8 +110,32 @@ sudo chown "$SERVICE_USER" /var/log/vscode-serve-web.log /var/log/vscode-serve-w
 # Load the service
 sudo launchctl load "$PLIST_PATH"
 
+# Verify the service started successfully
 echo ""
-echo "✓ VS Code serve-web installed and started"
+echo "Verifying service..."
+sleep 2
+
+status_line=$(sudo launchctl list | grep "$SERVICE_LABEL" || true)
+
+if [[ -z "$status_line" ]]; then
+    echo "✗ Service failed to load — not found in launchctl list"
+    echo "  Check plist: $PLIST_PATH"
+    exit 1
+fi
+
+pid=$(echo "$status_line" | awk '{print $1}')
+exit_code=$(echo "$status_line" | awk '{print $2}')
+
+if [[ "$pid" =~ ^[0-9]+$ ]] && [[ "$exit_code" == "0" ]]; then
+    echo "✓ VS Code serve-web installed and running (PID $pid)"
+else
+    echo "✗ Service loaded but process is not running (last exit code: $exit_code)"
+    echo ""
+    echo "Last error log output:"
+    tail -10 /var/log/vscode-serve-web.err 2>/dev/null || echo "  (no error log found)"
+    exit 1
+fi
+
 echo ""
 echo "Useful commands:"
 echo "  Status:  sudo launchctl list | grep $SERVICE_LABEL"

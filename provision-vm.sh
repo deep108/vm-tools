@@ -245,10 +245,6 @@ else
     echo "      /opt/homebrew not found — skipping."
 fi
 
-# --- Run check-dev-env ---
-echo "[+] Running guest-tools/scripts/check-dev-env.sh..."
-ssh_user "bash ~/dev/guest-tools/scripts/check-dev-env.sh"
-
 # --- Summary ---
 close_ssh_masters
 trap - EXIT INT TERM  # provisioning succeeded — don't delete the VM on exit

@@ -19,7 +19,7 @@ This toolset covers the full VM provisioning lifecycle:
 | File | Purpose |
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
-| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, configure git, clone guest-tools, transfer Homebrew ownership, run check-dev-env |
+| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, configure git, clone guest-tools, transfer Homebrew ownership |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-tart-user.sh` | Basic script to create a user on a running Tart VM |
 | `create-tart-user2.sh` | Enhanced version with CREATE/DELETE modes, `--admin` flag, and non-interactive mode |
@@ -49,6 +49,8 @@ This toolset covers the full VM provisioning lifecycle:
 ```
 Prompts for: VM user password, GitHub token (for guest-tools clone).
 Requires an SSH key pair on the host (`~/.ssh/id_ed25519`) for passwordless VM access.
+
+After provisioning, SSH into the VM and run guest-tools scripts manually (e.g. `check-dev-env.sh`, `setup-code-server-launch-agent.sh`) to complete dev environment setup.
 
 ### Delete a VM
 ```bash

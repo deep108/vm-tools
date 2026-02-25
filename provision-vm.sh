@@ -108,21 +108,26 @@ echo
 echo ""
 
 # --- Check for conflicts ---
-echo "[1/7] Checking for existing VM..."
+echo "[1/8] Checking for existing VM..."
 if tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
     echo "Error: VM '$VM_NAME' already exists. Delete it first with: tart delete $VM_NAME"
     exit 1
 fi
 echo "      OK — no conflict."
 
+# --- Pull latest base image ---
+echo "[2/8] Pulling latest '$BASE_IMAGE'..."
+tart pull "$BASE_IMAGE"
+echo "      Done."
+
 # --- Clone base image ---
-echo "[2/7] Cloning '$BASE_IMAGE' -> '$VM_NAME'..."
+echo "[3/8] Cloning '$BASE_IMAGE' -> '$VM_NAME'..."
 tart clone "$BASE_IMAGE" "$VM_NAME"
 VM_CLONED=true
 echo "      Done."
 
 # --- Resize disk ---
-echo "[3/7] Setting disk size to ${DISK_GB} GB..."
+echo "[4/8] Setting disk size to ${DISK_GB} GB..."
 if RESIZE_OUT=$(tart set "$VM_NAME" --disk-size "$DISK_GB" 2>&1); then
     echo "      Done."
 else
@@ -131,7 +136,7 @@ else
 fi
 
 # --- Start VM ---
-echo "[4/7] Starting VM..."
+echo "[5/8] Starting VM..."
 if [[ "$HEADLESS" == true ]]; then
     tart run "$VM_NAME" --no-graphics &
 else
@@ -150,14 +155,14 @@ while [[ -z "$VM_IP" ]]; do
         echo "Error: Timed out waiting for VM IP after ${IP_TIMEOUT}s."
         exit 1
     fi
-    printf "\r[5/7] Waiting for VM IP... %ds" "$IP_ELAPSED"
+    printf "\r[6/8] Waiting for VM IP... %ds" "$IP_ELAPSED"
     VM_IP=$(tart ip "$VM_NAME" 2>/dev/null || true)
     if [[ -z "$VM_IP" ]]; then
         sleep 2
         IP_ELAPSED=$((IP_ELAPSED + 2))
     fi
 done
-printf "\r[5/7] IP: %-40s\n" "$VM_IP"
+printf "\r[6/8] IP: %-40s\n" "$VM_IP"
 
 # --- Wait for SSH ---
 SSH_TIMEOUT=120
@@ -171,11 +176,11 @@ while true; do
         echo "Error: Timed out waiting for SSH after ${SSH_TIMEOUT}s."
         exit 1
     fi
-    printf "\r[6/7] Waiting for SSH... %ds" "$SSH_ELAPSED"
+    printf "\r[7/8] Waiting for SSH... %ds" "$SSH_ELAPSED"
     sleep 5
     SSH_ELAPSED=$((SSH_ELAPSED + 5))
 done
-printf "\r[6/7] SSH is ready.%-20s\n" ""
+printf "\r[7/8] SSH is ready.%-20s\n" ""
 
 # --- Establish SSH ControlMaster connections (authenticate once, reuse for all commands) ---
 ADMIN_SSH_SOCKET=$(mktemp -u /tmp/tart-admin-XXXXXX)
@@ -191,7 +196,7 @@ ssh_user()  { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
                   "$VM_IP" "$@"; }
 
 # --- Create user ---
-echo "[7/7] Creating user '$HOST_USER' on VM..."
+echo "[8/8] Creating user '$HOST_USER' on VM..."
 "$SCRIPT_DIR/create-tart-user2.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
 echo "      User created."
 

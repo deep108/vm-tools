@@ -103,8 +103,6 @@ while true; do
     fi
 done
 
-read -s -p "GitHub token (for cloning guest-tools): " GITHUB_TOKEN
-echo
 echo ""
 
 # --- Check for conflicts ---
@@ -245,9 +243,7 @@ echo "      Done."
 
 # --- Clone guest-tools ---
 echo "[+] Cloning guest-tools into VM..."
-ssh_user "mkdir -p ~/dev \
-     && git clone https://${GITHUB_TOKEN}@github.com/deep108/guest-tools.git ~/dev/guest-tools \
-     && git -C ~/dev/guest-tools remote set-url origin https://github.com/deep108/guest-tools.git"
+ssh_user "mkdir -p ~/dev && git clone https://github.com/deep108/guest-tools.git ~/dev/guest-tools"
 echo "      guest-tools cloned."
 
 # --- Transfer Homebrew ownership ---

@@ -47,7 +47,7 @@ This toolset covers the full VM provisioning lifecycle:
 ./provision-vm.sh <vm-name> --base <image>         # custom base image
 ./provision-vm.sh <vm-name> --headless             # no UI window
 ```
-Prompts for: VM user password, GitHub token (for guest-tools clone).
+Prompts for: VM user password.
 Requires an SSH key pair on the host (`~/.ssh/id_ed25519`) for passwordless VM access.
 
 Steps performed:
@@ -109,7 +109,7 @@ brew bundle
 
 - Shell scripts use `set -euo pipefail` for strict error handling.
 - `provision-vm.sh` uses SSH ControlMaster for the `admin@` account to avoid repeated password prompts; the new user account uses key-based auth after the SSH key is installed.
-- `provision-vm.sh` configures `git credential cache` (15-day TTL) on the guest; first `git` operation after a reboot will prompt for the GitHub token.
+- `provision-vm.sh` configures `git credential cache` (15-day TTL) on the guest.
 - The cirruslabs `macos-tahoe-base` image ships with Homebrew at `/opt/homebrew` owned by `admin`; `provision-vm.sh` transfers ownership to the new user so Homebrew works without sudo.
 - `create-tart-user2.sh` is the production-ready version; prefer it over `create-tart-user.sh`.
 - SSH connections disable `StrictHostKeyChecking` for VM access (expected — VM IPs change).

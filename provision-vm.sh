@@ -146,10 +146,16 @@ TART_PID=$!
 echo "      VM started (PID $TART_PID)."
 
 # --- Wait for IP ---
+# Brief pause before polling: avoids picking up a stale cached IP from a
+# recently-deleted VM with the same name (tart may return the old ARP/DHCP
+# entry if queried immediately after a new VM starts).
+sleep 5
+
 VM_IP=""
-IP_TIMEOUT=30
-IP_ELAPSED=0
+IP_TIMEOUT=60
+IP_START=$(date +%s)
 while [[ -z "$VM_IP" ]]; do
+    IP_ELAPSED=$(( $(date +%s) - IP_START ))
     if [[ $IP_ELAPSED -ge $IP_TIMEOUT ]]; then
         printf "\n"
         echo "Error: Timed out waiting for VM IP after ${IP_TIMEOUT}s."
@@ -159,26 +165,30 @@ while [[ -z "$VM_IP" ]]; do
     VM_IP=$(tart ip "$VM_NAME" 2>/dev/null || true)
     if [[ -z "$VM_IP" ]]; then
         sleep 2
-        IP_ELAPSED=$((IP_ELAPSED + 2))
     fi
 done
 printf "\r[6/8] IP: %-40s\n" "$VM_IP"
 
 # --- Wait for SSH ---
-SSH_TIMEOUT=120
-SSH_ELAPSED=0
+# Use -G 5 (macOS TCP connection timeout) not -w 5 (idle timeout): without -G,
+# nc connecting to a non-responding IP blocks for ~75s while the kernel
+# retransmits SYN packets, making the counter appear to run ~15x too slow.
+# Track real wall-clock time so the display stays accurate regardless of how
+# long each nc attempt takes.
+SSH_TIMEOUT=180
+SSH_START=$(date +%s)
 while true; do
-    if nc -z -w 5 "$VM_IP" 22 2>/dev/null; then
+    if nc -z -w 5 -G 5 "$VM_IP" 22 2>/dev/null; then
         break
     fi
+    SSH_ELAPSED=$(( $(date +%s) - SSH_START ))
     if [[ $SSH_ELAPSED -ge $SSH_TIMEOUT ]]; then
         printf "\n"
         echo "Error: Timed out waiting for SSH after ${SSH_TIMEOUT}s."
         exit 1
     fi
     printf "\r[7/8] Waiting for SSH... %ds" "$SSH_ELAPSED"
-    sleep 5
-    SSH_ELAPSED=$((SSH_ELAPSED + 5))
+    sleep 3
 done
 printf "\r[7/8] SSH is ready.%-20s\n" ""
 

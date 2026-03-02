@@ -33,3 +33,23 @@
   - [ ] password: (set securely)
 - [ ] `~/dev/Brewfile`
   - [ ] code-server
+
+## Chezmoi run_once_ Migration
+- [x] Create `run_once_before_01-install-homebrew.sh`
+- [x] Create `run_once_before_02-install-brew-packages.sh`
+- [x] Create `run_once_before_03-install-claude-code.sh`
+- [ ] Move scripts into actual chezmoi dotfiles repo (e.g. `deep108/dotfiles`)
+- [ ] Add shell config templates (`.zprofile`, `.zshrc`) as chezmoi-managed files
+- [ ] Add VS Code extensions/settings to chezmoi
+- [ ] Add starship config to chezmoi
+- [ ] Test full `chezmoi init --apply` on a fresh VM
+
+## Golden Base Image
+- [ ] Create golden image: `provision-vm.sh golden-dev-base`, run check-dev-env.sh + chezmoi inside
+- [ ] Test cloning from golden: `provision-vm.sh my-project --base golden-dev-base`
+- [ ] Document cleanup steps before snapshotting (clear history, remove instance SSH keys)
+
+## Investigate `tart exec`
+- [ ] Test `tart exec` as replacement for `ssh_admin()` in provision-vm.sh
+- [ ] Verify sudo support and environment context
+- [ ] Check if it eliminates need for SSH wait loop during provisioning

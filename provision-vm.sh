@@ -8,7 +8,6 @@ DISK_GB=75
 BASE_IMAGE="ghcr.io/cirruslabs/macos-tahoe-base:latest"
 HEADLESS=false
 VM_NAME=""
-GIT_CREDENTIAL_TTL=$((15 * 24 * 60 * 60))  # 15 days in seconds
 
 # --- Usage ---
 usage() {
@@ -83,27 +82,37 @@ cleanup() {
 trap cleanup EXIT
 trap 'INTERRUPTED=true; exit 130' INT TERM
 
+# --- Detect local base image ---
+# Registry images contain '/' (e.g. ghcr.io/cirruslabs/...), local VMs are plain names.
+LOCAL_BASE=false
+if [[ "$BASE_IMAGE" != */* ]]; then
+    LOCAL_BASE=true
+fi
+
 echo "=== Provision VM: $VM_NAME ==="
 echo "  Base image : $BASE_IMAGE"
 echo "  Disk size  : ${DISK_GB} GB"
 echo "  Headless   : $HEADLESS"
 echo "  Host user  : $HOST_USER"
+echo "  Local base : $LOCAL_BASE"
 echo ""
 
-# --- Prompt for password upfront ---
-while true; do
-    read -s -p "Password for new user '$HOST_USER': " PASSWORD
-    echo
-    read -s -p "Confirm password: " PASSWORD_CONFIRM
-    echo
-    if [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]]; then
-        break
-    else
-        echo "Passwords do not match. Please try again."
-    fi
-done
-
-echo ""
+# --- Prompt for password upfront (skip for local base — user already exists) ---
+PASSWORD=""
+if [[ "$LOCAL_BASE" == false ]]; then
+    while true; do
+        read -s -p "Password for new user '$HOST_USER': " PASSWORD
+        echo
+        read -s -p "Confirm password: " PASSWORD_CONFIRM
+        echo
+        if [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]]; then
+            break
+        else
+            echo "Passwords do not match. Please try again."
+        fi
+    done
+    echo ""
+fi
 
 # --- Check for conflicts ---
 echo "[1/8] Checking for existing VM..."
@@ -113,10 +122,18 @@ if tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
 fi
 echo "      OK — no conflict."
 
-# --- Pull latest base image ---
-echo "[2/8] Pulling latest '$BASE_IMAGE'..."
-tart pull "$BASE_IMAGE"
-echo "      Done."
+# --- Pull latest base image (skip for local VMs) ---
+if [[ "$BASE_IMAGE" == */* ]]; then
+    echo "[2/8] Pulling latest '$BASE_IMAGE'..."
+    tart pull "$BASE_IMAGE"
+    echo "      Done."
+else
+    echo "[2/8] Using local VM '$BASE_IMAGE' as base (skipping pull)."
+    if ! tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$BASE_IMAGE"; then
+        echo "Error: Local VM '$BASE_IMAGE' not found. Run 'tart list' to see available VMs."
+        exit 1
+    fi
+fi
 
 # --- Clone base image ---
 echo "[3/8] Cloning '$BASE_IMAGE' -> '$VM_NAME'..."
@@ -203,12 +220,16 @@ ssh_admin() { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
 ssh_user()  { ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
                   "$VM_IP" "$@"; }
 
-# --- Create user ---
-echo "[8/8] Creating user '$HOST_USER' on VM..."
-"$SCRIPT_DIR/create-tart-user2.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
-echo "      User created."
+# --- Create user (skip for local base — user already exists) ---
+if [[ "$LOCAL_BASE" == false ]]; then
+    echo "[8/8] Creating user '$HOST_USER' on VM..."
+    "$SCRIPT_DIR/create-tart-user2.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
+    echo "      User created."
+else
+    echo "[8/8] Skipping user creation (local base — '$HOST_USER' already exists)."
+fi
 
-# --- Install SSH public key for new user ---
+# --- Install/update SSH public key for user ---
 echo "[+] Installing SSH public key for '$HOST_USER'..."
 SSH_PUBKEY=""
 for key_file in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
@@ -236,24 +257,28 @@ ssh_admin "
 "
 echo "      Done."
 
-# --- Configure git credential cache ---
-echo "[+] Configuring git credential cache (${GIT_CREDENTIAL_TTL}s)..."
-ssh_user "git config --global credential.helper 'cache --timeout=${GIT_CREDENTIAL_TTL}'"
-echo "      Done."
 
-# --- Clone guest-tools ---
-echo "[+] Cloning guest-tools into VM..."
-ssh_user "mkdir -p ~/dev && git clone https://github.com/deep108/guest-tools.git ~/dev/guest-tools"
-echo "      guest-tools cloned."
-
-# --- Transfer Homebrew ownership ---
-echo "[+] Checking for Homebrew..."
-if ssh_admin "test -d /opt/homebrew"; then
-    echo "      Found — transferring ownership to '$HOST_USER'..."
-    ssh_admin "sudo chown -R '$HOST_USER':staff /opt/homebrew"
-    echo "      Done."
+# --- Clone or update guest-tools ---
+if [[ "$LOCAL_BASE" == false ]]; then
+    echo "[+] Cloning guest-tools into VM..."
+    ssh_user "mkdir -p ~/dev && git clone https://github.com/deep108/guest-tools.git ~/dev/guest-tools"
+    echo "      guest-tools cloned."
 else
-    echo "      /opt/homebrew not found — skipping."
+    echo "[+] Updating guest-tools in VM..."
+    ssh_user "cd ~/dev/guest-tools && git pull"
+    echo "      guest-tools updated."
+fi
+
+# --- Transfer Homebrew ownership (skip for local base — already done) ---
+if [[ "$LOCAL_BASE" == false ]]; then
+    echo "[+] Checking for Homebrew..."
+    if ssh_admin "test -d /opt/homebrew"; then
+        echo "      Found — transferring ownership to '$HOST_USER'..."
+        ssh_admin "sudo chown -R '$HOST_USER':staff /opt/homebrew"
+        echo "      Done."
+    else
+        echo "      /opt/homebrew not found — skipping."
+    fi
 fi
 
 # --- Summary ---

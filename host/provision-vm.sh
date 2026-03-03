@@ -258,15 +258,15 @@ ssh_admin "
 echo "      Done."
 
 
-# --- Clone or update guest-tools ---
+# --- Clone or update vm-tools ---
 if [[ "$LOCAL_BASE" == false ]]; then
-    echo "[+] Cloning guest-tools into VM..."
-    ssh_user "mkdir -p ~/dev && git clone https://github.com/deep108/guest-tools.git ~/dev/guest-tools"
-    echo "      guest-tools cloned."
+    echo "[+] Cloning vm-tools into VM..."
+    ssh_user "mkdir -p ~/dev && git clone https://github.com/deep108/vm-tools.git ~/dev/vm-tools"
+    echo "      vm-tools cloned."
 else
-    echo "[+] Updating guest-tools in VM..."
-    ssh_user "cd ~/dev/guest-tools && git pull"
-    echo "      guest-tools updated."
+    echo "[+] Updating vm-tools in VM..."
+    ssh_user "cd ~/dev/vm-tools && git pull"
+    echo "      vm-tools updated."
 fi
 
 # --- Transfer Homebrew ownership (skip for local base — already done) ---

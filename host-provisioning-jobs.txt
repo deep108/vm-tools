@@ -1,0 +1,2 @@
+- Create ssh multiplexing sockets dir (for .ssh/config ControlMaster auto etc...)
+	- mkdir -p ~/.ssh/sockets

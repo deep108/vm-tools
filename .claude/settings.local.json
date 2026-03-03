@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x:*)",
+      "Bash(bash:*)",
+      "Bash(xargs ls:*)",
+      "WebSearch",
+      "WebFetch(domain:developer.hashicorp.com)",
+      "Bash(tart:*)",
+      "WebFetch(domain:theapplewiki.com)",
+      "WebFetch(domain:appledb.dev)",
+      "Bash(sysctl:*)",
+      "Bash(chezmoi data:*)",
+      "Bash(chezmoi cat:*)",
+      "Bash(chezmoi diff:*)",
+      "Bash(chezmoi init:*)",
+      "Bash(chezmoi apply:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

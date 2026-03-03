@@ -281,6 +281,11 @@ if [[ "$LOCAL_BASE" == false ]]; then
     fi
 fi
 
+# --- Run bootstrap (installs Homebrew via brew, chezmoi, applies dotfiles) ---
+echo "[+] Running bootstrap..."
+ssh_user "zsh -l ~/dev/vm-tools/scripts/bootstrap.sh"
+echo "      Bootstrap complete."
+
 # --- Summary ---
 close_ssh_masters
 trap - EXIT INT TERM  # provisioning succeeded — don't delete the VM on exit

@@ -1,22 +1,21 @@
-# Guest Tools TODO
+# vm-tools TODO
 
 ## Remote VSCode Setup
 - [ ] Complete remote VSCode setup
   - [x] Key auto repeat settings (delay and speed)
   - [ ] Decide if auth is needed (probably yes)
-  - [ ] Extensions list
+  - [ ] Extensions list (manage via chezmoi)
     - [ ] C/C++
     - [ ] Claude Code
     - [ ] Monokai theme
     - [ ] Peacock
     - [ ] Prettier
     - [ ] VSCode Neovim
-  - [ ] Settings
+  - [ ] Settings (manage via chezmoi)
     - [ ] Autosave off
     - [ ] Theme
     - [ ] Mono fonts install/auth
     - [ ] Disable VSCode AI Chat features/UI
-  - [ ] Chezmoi to setup extensions and settings
   - [x] Add code-server install/config to check-dev-env.sh
     - [x] Brewfile
     - [x] Config code-server (port, auth)
@@ -24,29 +23,23 @@
 
 ## Starship Setup
 - [ ] Setup on host
-- [ ] Make a prompt that clearly indicates it's running remote
-- [ ] Config with Chezmoi
-
-## Chezmoi Configuration
-- [ ] `~/.config/code-server/config.yaml`
-  - [ ] bind-addr: 0.0.0.0:8080
-  - [ ] password: (set securely)
-- [ ] `~/dev/Brewfile`
-  - [ ] code-server
+- [ ] Make a prompt that clearly indicates it's running remote/guest VM
+- [ ] Config with chezmoi
 
 ## Chezmoi run_once_ Migration
-- [x] Create `run_once_before_01-install-homebrew.sh`
-- [x] Create `run_once_before_02-install-brew-packages.sh`
-- [x] Create `run_once_before_03-install-claude-code.sh`
-- [ ] Move scripts into actual chezmoi dotfiles repo (e.g. `deep108/dotfiles`)
-- [ ] Add shell config templates (`.zprofile`, `.zshrc`) as chezmoi-managed files
+- [x] Create run_once_before scripts (macos-defaults, brew packages, Claude Code)
+- [x] Move scripts into `deep108/dotfiles-dev` chezmoi repo
+- [x] Add `.chezmoi.toml.tmpl` with host/guest auto-detection
+- [x] Add shell config templates (`.zprofile`, `.zshrc`) as chezmoi-managed files
+- [x] Create `scripts/bootstrap.sh` (Homebrew + chezmoi + `chezmoi init --apply --force`)
+- [x] Create `check-dev-tool-updates` script with host/guest package lists
+- [x] Test full `chezmoi init --apply` on a fresh VM
 - [ ] Add VS Code extensions/settings to chezmoi
 - [ ] Add starship config to chezmoi
-- [ ] Test full `chezmoi init --apply` on a fresh VM
 
 ## Golden Base Image
-- [ ] Create golden image: `provision-vm.sh golden-dev-base`, run check-dev-env.sh + chezmoi inside
-- [ ] Test cloning from golden: `provision-vm.sh my-project --base golden-dev-base`
+- [x] Create golden image and test cloning from it
+- [x] Verify Claude Code auth persists across clones
 - [ ] Document cleanup steps before snapshotting (clear history, remove instance SSH keys)
 
 ## Investigate `tart exec`

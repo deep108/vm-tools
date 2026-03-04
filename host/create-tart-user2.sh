@@ -38,19 +38,9 @@ done
 
 [[ -z "$VM_NAME" || -z "$TARGET_USER" ]] && usage
 
-# Get VM IP (assumes VM is already running)
-VM_IP=$(tart ip "$VM_NAME" 2>/dev/null) || {
-    echo "Error: Could not get IP for VM '$VM_NAME'. Is it running?"
-    exit 1
-}
-
-# Helper function to run SSH commands with proper error handling
-run_ssh() {
-    local control_opts=()
-    if [[ -n "${SSH_CONTROL_PATH:-}" ]]; then
-        control_opts=(-o ControlMaster=no -o "ControlPath=${SSH_CONTROL_PATH}")
-    fi
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "${control_opts[@]}" "admin@${VM_IP}" "$@"
+# Helper function to run commands on the VM via tart exec
+vm_exec() {
+    tart exec "$VM_NAME" "$@"
 }
 
 # --- DELETE MODE ---
@@ -61,9 +51,9 @@ if [[ "$DELETE_MODE" == true ]]; then
         exit 0
     fi
 
-    echo "Deleting user '$TARGET_USER' on $VM_NAME ($VM_IP)..."
-    
-    if run_ssh "sudo sysadminctl -deleteUser '$TARGET_USER'" 2>&1; then
+    echo "Deleting user '$TARGET_USER' on $VM_NAME..."
+
+    if vm_exec sudo sysadminctl -deleteUser "$TARGET_USER" 2>&1; then
         echo "User '$TARGET_USER' deleted successfully."
     else
         echo "Warning: Delete command returned an error (user may not have existed)."
@@ -75,18 +65,18 @@ fi
 
 # Check if user already exists
 echo "Checking if user '$TARGET_USER' already exists..."
-if run_ssh "id '$TARGET_USER'" &>/dev/null; then
+if vm_exec id "$TARGET_USER" &>/dev/null; then
     echo "Error: User '$TARGET_USER' already exists on the VM."
     echo "Delete the user first with: $0 -d $VM_NAME $TARGET_USER"
     exit 1
 fi
 
 # Check for leftover home directory
-if run_ssh "test -d '/Users/$TARGET_USER'" &>/dev/null; then
+if vm_exec test -d "/Users/$TARGET_USER" &>/dev/null; then
     echo "Warning: Home directory /Users/$TARGET_USER already exists (leftover from previous user?)."
     read -p "Delete it before proceeding? [y/N]: " DELETE_HOME
     if [[ "$DELETE_HOME" =~ ^[Yy]$ ]]; then
-        run_ssh "sudo rm -rf '/Users/$TARGET_USER'"
+        vm_exec sudo rm -rf "/Users/$TARGET_USER"
         echo "Removed leftover home directory."
     else
         echo "Aborted. Please manually resolve the leftover directory."
@@ -101,7 +91,7 @@ if [[ -z "$PASSWORD" ]]; then
         echo
         read -s -p "Confirm password: " PASSWORD_CONFIRM
         echo
-        
+
         if [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]]; then
             break
         else
@@ -127,10 +117,10 @@ else
     fi
 fi
 
-echo "Creating user '$TARGET_USER' on $VM_NAME ($VM_IP)..."
+echo "Creating user '$TARGET_USER' on $VM_NAME..."
 
-# Create the user via SSH with verbose output
-if OUTPUT=$(run_ssh "sudo sysadminctl -addUser '$TARGET_USER' -fullName '$FULL_NAME' -password '$PASSWORD' $ADMIN_FLAG" 2>&1); then
+# Create the user via tart exec with verbose output
+if OUTPUT=$(vm_exec sudo sysadminctl -addUser "$TARGET_USER" -fullName "$FULL_NAME" -password "$PASSWORD" $ADMIN_FLAG 2>&1); then
     echo "User '$TARGET_USER' created successfully."
     [[ -n "$ADMIN_FLAG" ]] && echo "  - Admin privileges: yes" || echo "  - Admin privileges: no"
     echo "  - Full name: $FULL_NAME"
@@ -141,7 +131,7 @@ else
 fi
 
 # Verify the user was actually created
-if run_ssh "id '$TARGET_USER'" &>/dev/null; then
+if vm_exec id "$TARGET_USER" &>/dev/null; then
     echo "Verified: User exists on system."
 else
     echo "Warning: User creation may have failed - user not found in system."

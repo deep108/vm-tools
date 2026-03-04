@@ -33,4 +33,9 @@ echo -e "${GREEN}✓${NC} chezmoi ($(chezmoi --version 2>/dev/null | awk '{print
 echo -e "${BLUE}Applying dotfiles...${NC}"
 chezmoi init --apply deep108/dotfiles-dev
 
+# Upgrade all brew-managed packages to latest
+echo -e "${BLUE}Upgrading brew packages...${NC}"
+brew upgrade
+echo -e "${GREEN}✓${NC} All packages up to date"
+
 echo -e "${GREEN}✓${NC} Bootstrap complete"

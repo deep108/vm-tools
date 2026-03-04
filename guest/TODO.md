@@ -43,6 +43,9 @@
 - [ ] Document cleanup steps before snapshotting (clear history, remove instance SSH keys)
 
 ## Investigate `tart exec`
-- [ ] Test `tart exec` as replacement for `ssh_admin()` in provision-vm.sh
-- [ ] Verify sudo support and environment context
-- [ ] Check if it eliminates need for SSH wait loop during provisioning
+- [x] Test `tart exec` as replacement for `ssh_admin()` in provision-vm.sh
+- [x] Verify sudo support and environment context
+- [x] Check if it eliminates need for SSH wait loop during provisioning
+- [x] Rewrite provision-vm.sh and create-tart-user2.sh to use `tart exec`
+- [x] Add SSH host key regeneration for cloned VMs
+- [x] Auto-add VM host key to known_hosts

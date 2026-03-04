@@ -19,7 +19,7 @@ This toolset covers the full VM provisioning lifecycle:
 | File | Purpose |
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
-| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, configure git, clone guest-tools, transfer Homebrew ownership |
+| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, clone vm-tools, transfer Homebrew ownership, run bootstrap, set up VS Code serve-web |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-tart-user.sh` | Basic script to create a user on a running Tart VM |
 | `create-tart-user2.sh` | Enhanced version with CREATE/DELETE modes, `--admin` flag, and non-interactive mode |
@@ -50,22 +50,22 @@ This toolset covers the full VM provisioning lifecycle:
 Prompts for: VM user password.
 Requires an SSH key pair on the host (`~/.ssh/id_ed25519`) for passwordless VM access.
 
-Steps performed:
+Steps performed (all guest commands use `tart exec` via Virtio guest agent — no SSH required):
 1. Check for existing VM name conflict
 2. Pull latest base image (`tart pull`)
 3. Clone base image
 4. Resize disk
 5. Start VM
-6. Wait for IP
-7. Wait for SSH
+6. Wait for guest agent
+7. Regenerate SSH host keys (so cloned VMs get unique keys)
 8. Create user (via `create-tart-user2.sh`)
 9. Install host SSH public key for the new user
 10. Set computer name / hostname
-11. Configure git credential cache (15-day TTL)
-12. Clone guest-tools into `~/dev/guest-tools`
-13. Transfer Homebrew ownership from `admin` to the new user
-
-After provisioning, SSH into the VM and run guest-tools scripts manually (e.g. `check-dev-env.sh`, `setup-code-server-launch-agent.sh`) to complete dev environment setup.
+11. Clone vm-tools into `~/dev/vm-tools`
+12. Transfer Homebrew ownership from `admin` to the new user
+13. Run bootstrap (Homebrew, chezmoi, dotfiles)
+14. Set up VS Code serve-web LaunchDaemon
+15. Get VM IP, add host key to `known_hosts`, show summary
 
 ### Delete a VM
 ```bash
@@ -108,12 +108,12 @@ brew bundle
 ## Notes
 
 - Shell scripts use `set -euo pipefail` for strict error handling.
-- `provision-vm.sh` uses SSH ControlMaster for the `admin@` account to avoid repeated password prompts; the new user account uses key-based auth after the SSH key is installed.
-- `provision-vm.sh` configures `git credential cache` (15-day TTL) on the guest.
+- `provision-vm.sh` and `create-tart-user2.sh` use `tart exec` (Virtio guest agent / gRPC) for all guest commands — no SSH needed during provisioning. This bypasses networking entirely and eliminates the IP/SSH wait loops.
+- `tart exec` runs as the `admin` user (which has passwordless sudo). For user-context commands, `provision-vm.sh` uses `sudo -Hu <user> zsh -l -c '...'` to get the full login shell environment (Homebrew PATH, etc.).
+- `tart exec` does NOT support the `--` argument separator — it treats `--` as the command name.
+- SSH host keys are regenerated during provisioning so cloned VMs get unique keys; the new key is auto-added to the host's `known_hosts`.
 - The cirruslabs `macos-tahoe-base` image ships with Homebrew at `/opt/homebrew` owned by `admin`; `provision-vm.sh` transfers ownership to the new user so Homebrew works without sudo.
 - `create-tart-user2.sh` is the production-ready version; prefer it over `create-tart-user.sh`.
-- SSH connections disable `StrictHostKeyChecking` for VM access (expected — VM IPs change).
 - `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration; guest devenv scripts should do the same when attaching.
-- SSH scripts use `zsh -l` to ensure Homebrew PATH is available on the guest.
 - `setup-vscode-webapp.sh` depends on `update-icon.sh` and `iconoverlay.swift` being in the same directory.
 - `iconoverlay.swift` is compiled at runtime via `swiftc`; no pre-build step needed.

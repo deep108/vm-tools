@@ -31,7 +31,7 @@ echo -e "${GREEN}✓${NC} chezmoi ($(chezmoi --version 2>/dev/null | awk '{print
 
 # Init and apply dotfiles
 echo -e "${BLUE}Applying dotfiles...${NC}"
-chezmoi init --apply deep108/dotfiles-dev
+chezmoi init --apply --force deep108/dotfiles-dev
 
 # Upgrade all brew-managed packages to latest
 echo -e "${BLUE}Upgrading brew packages...${NC}"

@@ -100,6 +100,12 @@ Unlocks the login keychain (useful for automation workflows).
 - Internet connection (for Homebrew/tool downloads)
 - No other dependencies — scripts auto-install what they need
 
+## Terminal Font
+
+The starship prompt uses powerline glyphs for the VM name badge on guest VMs. Set your iTerm2 font to **MesloLGMDZ Nerd Font** (installed automatically via Homebrew on both host and guest):
+
+**iTerm2 → Settings → Profiles → Text → Font → MesloLGMDZ Nerd Font**
+
 ## Design Philosophy
 
 **Self-contained:** Each script works independently with no external dependencies beyond core macOS and Homebrew (which gets auto-installed).

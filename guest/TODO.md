@@ -24,9 +24,9 @@
     - [x] Start code-server (LaunchDaemon via provision-vm.sh step 14)
 
 ## Starship Setup
-- [ ] Setup on host
-- [ ] Make a prompt that clearly indicates it's running remote/guest VM
-- [ ] Config with chezmoi
+- [x] Setup on host
+- [x] Make a prompt that clearly indicates it's running remote/guest VM (teal powerline pill badge with hostname)
+- [x] Config with chezmoi (dot_config/starship.toml.tmpl)
 
 ## Chezmoi run_once_ Migration
 - [x] Create run_once_before scripts (macos-defaults, brew packages, Claude Code)
@@ -37,7 +37,7 @@
 - [x] Create `check-dev-tool-updates` script with host/guest package lists
 - [x] Test full `chezmoi init --apply` on a fresh VM
 - [x] Add VS Code extensions/settings to chezmoi
-- [ ] Add starship config to chezmoi
+- [x] Add starship config to chezmoi
 
 ## Golden Base Image
 - [x] Create golden image and test cloning from it

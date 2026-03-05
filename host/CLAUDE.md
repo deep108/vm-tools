@@ -21,8 +21,8 @@ This toolset covers the full VM provisioning lifecycle:
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
 | `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, clone vm-tools, transfer Homebrew ownership, run bootstrap, set up VS Code serve-web |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
-| `create-tart-user.sh` | Basic script to create a user on a running Tart VM |
-| `create-tart-user2.sh` | Enhanced version with CREATE/DELETE modes, `--admin` flag, and non-interactive mode |
+| `create-tart-user2.sh` | Create/delete a user on a running VM via `tart exec`; supports `--admin` flag and non-interactive mode |
+| `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution with login shell |
 | `host-provisioning-jobs.txt` | Manual one-time host setup tasks (e.g. `mkdir -p ~/.ssh/sockets`) |
 | `iconoverlay.swift` | Swift utility that overlays text onto `.icns` icon files |
 | `setup-vscode-webapp.sh` | Creates a standalone macOS `.app` shim for VS Code in a VM |
@@ -72,9 +72,16 @@ Steps performed (all guest commands use `tart exec` via Virtio guest agent — n
 ./delete-vm.sh <vm-name>    # stops if running, then deletes
 ```
 
+### Run commands on a VM
+```bash
+./tart-exec.sh <vm-name> whoami                              # run as admin
+./tart-exec.sh <vm-name> sudo brew update                    # admin with sudo
+./tart-exec.sh <vm-name> --user david 'mise install'         # run as user (login shell)
+./tart-exec.sh <vm-name> --user david ~/dev/vm-tools/scripts/bootstrap.sh
+```
+
 ### Create a user on a VM
 ```bash
-# create-tart-user2.sh is preferred
 ./create-tart-user2.sh <vm-name> <username>
 ./create-tart-user2.sh -d <vm-name> <username>   # delete user
 ```
@@ -85,8 +92,7 @@ Steps performed (all guest commands use `tart exec` via Virtio guest agent — n
 ./ssh-tmux.sh <vm-name> <session-name>         # named session
 ./ssh-tmux.sh <vm-name> <session-name> <user>  # custom username
 
-./ssh-run.sh <vm-name> <script-path>           # run a guest-side script
-./ssh-run.sh <vm-name> ~/guest-tools/devenv.sh # e.g. devenv setup
+./ssh-run.sh <vm-name> <script-path>           # run a guest-side script via SSH
 ```
 
 ### Set up VS Code webapp shim
@@ -113,7 +119,7 @@ brew bundle
 - `tart exec` does NOT support the `--` argument separator — it treats `--` as the command name.
 - SSH host keys are regenerated during provisioning so cloned VMs get unique keys; the new key is auto-added to the host's `known_hosts`.
 - The cirruslabs `macos-tahoe-base` image ships with Homebrew at `/opt/homebrew` owned by `admin`; `provision-vm.sh` transfers ownership to the new user so Homebrew works without sudo.
-- `create-tart-user2.sh` is the production-ready version; prefer it over `create-tart-user.sh`.
+- `tart-exec.sh` is the general-purpose wrapper for running commands on a VM; use `--user` for commands that need the user's login shell environment.
 - `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration; guest devenv scripts should do the same when attaching.
 - `setup-vscode-webapp.sh` depends on `update-icon.sh` and `iconoverlay.swift` being in the same directory.
 - `iconoverlay.swift` is compiled at runtime via `swiftc`; no pre-build step needed.

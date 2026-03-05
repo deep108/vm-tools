@@ -9,7 +9,7 @@ All scripts run on the **host machine**. For scripts that run inside a guest VM,
 This toolset covers the full VM provisioning lifecycle:
 1. Host machine setup (`Brewfile`)
 2. VM provisioning from a base image (`provision-vm.sh`)
-3. VM user creation (`create-tart-user2.sh`)
+3. VM user creation (`create-macos-vm-user.sh`)
 4. VM deletion (`delete-vm.sh`)
 5. VS Code web access via app shim (`setup-vscode-webapp.sh`)
 6. Icon customization (`update-icon.sh`, `iconoverlay.swift`)
@@ -21,7 +21,7 @@ This toolset covers the full VM provisioning lifecycle:
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
 | `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, clone vm-tools, transfer Homebrew ownership, run bootstrap, set up VS Code serve-web |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
-| `create-tart-user2.sh` | Create/delete a user on a running VM via `tart exec`; supports `--admin` flag and non-interactive mode |
+| `create-macos-vm-user.sh` | Create/delete a user on a running VM via `tart exec`; supports `--admin` flag and non-interactive mode |
 | `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution with login shell |
 | `prepare-golden-image.sh` | Clean instance-specific state from a running VM and stop it, preparing it as a golden base image for cloning |
 | `host-provisioning-jobs.txt` | Manual one-time host setup tasks (e.g. `mkdir -p ~/.ssh/sockets`) |
@@ -59,7 +59,7 @@ Steps performed (all guest commands use `tart exec` via Virtio guest agent — n
 5. Start VM
 6. Wait for guest agent
 7. Regenerate SSH host keys (so cloned VMs get unique keys)
-8. Create user (via `create-tart-user2.sh`)
+8. Create user (via `create-macos-vm-user.sh`)
 9. Install host SSH public key for the new user
 10. Set computer name / hostname
 11. Clone vm-tools into `~/dev/vm-tools`
@@ -97,8 +97,8 @@ Steps performed (all guest commands use `tart exec` via Virtio guest agent — n
 
 ### Create a user on a VM
 ```bash
-./create-tart-user2.sh <vm-name> <username>
-./create-tart-user2.sh -d <vm-name> <username>   # delete user
+./create-macos-vm-user.sh <vm-name> <username>
+./create-macos-vm-user.sh -d <vm-name> <username>   # delete user
 ```
 
 ### SSH into a VM
@@ -129,7 +129,7 @@ brew bundle
 ## Notes
 
 - Shell scripts use `set -euo pipefail` for strict error handling.
-- `provision-vm.sh` and `create-tart-user2.sh` use `tart exec` (Virtio guest agent / gRPC) for all guest commands — no SSH needed during provisioning. This bypasses networking entirely and eliminates the IP/SSH wait loops.
+- `provision-vm.sh` and `create-macos-vm-user.sh` use `tart exec` (Virtio guest agent / gRPC) for all guest commands — no SSH needed during provisioning. This bypasses networking entirely and eliminates the IP/SSH wait loops.
 - `tart exec` runs as the `admin` user (which has passwordless sudo). For user-context commands, `provision-vm.sh` uses `sudo -Hu <user> zsh -l -c '...'` to get the full login shell environment (Homebrew PATH, etc.).
 - `tart exec` does NOT support the `--` argument separator — it treats `--` as the command name.
 - SSH host keys are regenerated during provisioning so cloned VMs get unique keys; the new key is auto-added to the host's `known_hosts`.

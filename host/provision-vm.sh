@@ -207,7 +207,7 @@ echo "       Done."
 # --- [8/15] Create user (skip for local base — user already exists) ---
 if [[ "$LOCAL_BASE" == false ]]; then
     echo "[8/15] Creating user '$HOST_USER' on VM..."
-    "$SCRIPT_DIR/create-tart-user2.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
+    "$SCRIPT_DIR/create-macos-vm-user.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
     echo "       User created."
 else
     echo "[8/15] Skipping user creation (local base — '$HOST_USER' already exists)."

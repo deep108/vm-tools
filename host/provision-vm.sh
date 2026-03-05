@@ -269,10 +269,14 @@ echo "[13/15] Running bootstrap..."
 vm_exec_user "zsh -l ~/dev/vm-tools/scripts/bootstrap.sh"
 echo "        Bootstrap complete."
 
-# --- [14/15] Set up VS Code serve-web LaunchDaemon ---
-echo "[14/15] Setting up VS Code serve-web..."
-vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-launch-agent.sh
-echo "        Done."
+# --- [14/15] Set up VS Code serve-web LaunchDaemon (skip for local base — already configured) ---
+if [[ "$LOCAL_BASE" == false ]]; then
+    echo "[14/15] Setting up VS Code serve-web..."
+    vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-launch-agent.sh
+    echo "        Done."
+else
+    echo "[14/15] Skipping VS Code serve-web (local base — already configured)."
+fi
 
 # --- [15/15] Get VM IP and show summary ---
 trap - EXIT INT TERM  # provisioning succeeded — don't delete the VM on exit

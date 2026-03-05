@@ -67,7 +67,6 @@ cleanup() {
         echo "Provisioning failed — cleaning up VM '$VM_NAME'..."
     fi
     tart stop "$VM_NAME" 2>/dev/null || true
-    sleep 2
     tart delete "$VM_NAME" 2>/dev/null || true
     echo "      Done."
 }

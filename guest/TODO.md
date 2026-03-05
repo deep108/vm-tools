@@ -4,22 +4,24 @@
 - [ ] Complete remote VSCode setup
   - [x] Key auto repeat settings (delay and speed)
   - [ ] Decide if auth is needed (probably yes)
-  - [ ] Extensions list (manage via chezmoi)
-    - [ ] C/C++
-    - [ ] Claude Code
-    - [ ] Monokai theme
-    - [ ] Peacock
-    - [ ] Prettier
-    - [ ] VSCode Neovim
-  - [ ] Settings (manage via chezmoi)
-    - [ ] Autosave off
-    - [ ] Theme
-    - [ ] Mono fonts install/auth
-    - [ ] Disable VSCode AI Chat features/UI
+  - [x] Extensions list (manage via chezmoi — run_once_before_04)
+    - [x] C/C++
+    - [x] Claude Code
+    - [x] Monokai theme
+    - [x] Peacock
+    - [x] Prettier
+    - [x] VSCode Neovim
+    - [x] GitHub Copilot
+  - [x] Settings (manage via chezmoi — dot_vscode/data/User/settings.json)
+    - [x] Autosave off
+    - [x] Theme (Monokai Pro)
+    - [x] Mono fonts (SF Mono)
+    - [x] Disable minimap
+    - [x] AI Chat features kept enabled (GitHub Copilot)
   - [x] Add code-server install/config to check-dev-env.sh
     - [x] Brewfile
     - [x] Config code-server (port, auth)
-    - [ ] Start code-server
+    - [x] Start code-server (LaunchDaemon via provision-vm.sh step 14)
 
 ## Starship Setup
 - [ ] Setup on host
@@ -34,7 +36,7 @@
 - [x] Create `scripts/bootstrap.sh` (Homebrew + chezmoi + `chezmoi init --apply --force`)
 - [x] Create `check-dev-tool-updates` script with host/guest package lists
 - [x] Test full `chezmoi init --apply` on a fresh VM
-- [ ] Add VS Code extensions/settings to chezmoi
+- [x] Add VS Code extensions/settings to chezmoi
 - [ ] Add starship config to chezmoi
 
 ## Golden Base Image

@@ -42,7 +42,7 @@
 ## Golden Base Image
 - [x] Create golden image and test cloning from it
 - [x] Verify Claude Code auth persists across clones
-- [ ] Document cleanup steps before snapshotting (clear history, remove instance SSH keys)
+- [x] Document cleanup steps before snapshotting (prepare-golden-image.sh)
 
 ## Investigate `tart exec`
 - [x] Test `tart exec` as replacement for `ssh_admin()` in provision-vm.sh

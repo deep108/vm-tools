@@ -23,6 +23,7 @@ This toolset covers the full VM provisioning lifecycle:
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-tart-user2.sh` | Create/delete a user on a running VM via `tart exec`; supports `--admin` flag and non-interactive mode |
 | `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution with login shell |
+| `prepare-golden-image.sh` | Clean instance-specific state from a running VM and stop it, preparing it as a golden base image for cloning |
 | `host-provisioning-jobs.txt` | Manual one-time host setup tasks (e.g. `mkdir -p ~/.ssh/sockets`) |
 | `iconoverlay.swift` | Swift utility that overlays text onto `.icns` icon files |
 | `setup-vscode-webapp.sh` | Creates a standalone macOS `.app` shim for VS Code in a VM |
@@ -70,6 +71,20 @@ Steps performed (all guest commands use `tart exec` via Virtio guest agent — n
 ### Delete a VM
 ```bash
 ./delete-vm.sh <vm-name>    # stops if running, then deletes
+```
+
+### Prepare a golden base image
+```bash
+# 1. Provision a VM from registry base
+./provision-vm.sh macos-vm-base
+
+# 2. SSH in, verify everything works
+
+# 3. Clean up and stop (clears history, SSH keys, caches, logs)
+./prepare-golden-image.sh macos-vm-base
+
+# 4. Clone from it
+./provision-vm.sh my-dev-vm --base macos-vm-base
 ```
 
 ### Run commands on a VM

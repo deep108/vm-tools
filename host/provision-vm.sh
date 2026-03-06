@@ -380,7 +380,7 @@ echo "        Bootstrap complete."
 if [[ "$LOCAL_BASE" == false ]]; then
     echo "[14/15] Setting up VS Code serve-web..."
     if [[ "$GUEST_OS" == "linux" ]]; then
-        vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-systemd.sh
+        vm_exec env "SERVICE_USER=$HOST_USER" bash /home/$HOST_USER/dev/vm-tools/guest/setup-code-server-systemd.sh
     else
         vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-launch-agent.sh
     fi

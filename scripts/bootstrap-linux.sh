@@ -41,6 +41,19 @@ if ! command -v code &>/dev/null; then
     sudo apt-get install -y code
 fi
 
+# Install starship (not in Debian repos — download binary to /usr/local/bin)
+if ! command -v starship &>/dev/null; then
+    echo -e "${BLUE}Installing starship...${NC}"
+    curl -sS https://starship.rs/install.sh | sudo sh -s -- -y
+fi
+
+# Install mise (not in Debian repos — official installer puts it in ~/.local/bin)
+if ! command -v mise &>/dev/null; then
+    echo -e "${BLUE}Installing mise...${NC}"
+    curl https://mise.run | sh
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 # Install chezmoi
 if ! command -v chezmoi &>/dev/null; then
     echo -e "${BLUE}Installing chezmoi...${NC}"

@@ -21,9 +21,16 @@ sudo apt-get install -y \
     curl \
     git \
     tmux \
-    neovim \
     unzip \
     zsh
+
+# Install neovim from GitHub releases (Debian Bookworm ships 0.7.2,
+# but vscode-neovim extension requires >= 0.9.0)
+if ! command -v nvim &>/dev/null || [[ "$(nvim --version | head -1 | grep -oE '[0-9]+\.[0-9]+')" < "0.9" ]]; then
+    echo -e "${BLUE}Installing neovim from GitHub releases...${NC}"
+    NVIM_VERSION=$(curl -s https://api.github.com/repos/neovim/neovim/releases/latest | grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+    curl -sL "https://github.com/neovim/neovim/releases/download/${NVIM_VERSION}/nvim-linux-arm64.tar.gz" | sudo tar xzf - -C /usr/local --strip-components=1
+fi
 
 # Set zsh as default shell
 if [[ "$(basename "$SHELL")" != "zsh" ]]; then

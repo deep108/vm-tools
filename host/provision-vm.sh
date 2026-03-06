@@ -5,17 +5,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Defaults ---
 DISK_GB=75
-BASE_IMAGE="ghcr.io/cirruslabs/macos-tahoe-base:latest"
+BASE_IMAGE=""
+BASE_IMAGE_SET=false
 HEADLESS=false
+GUEST_OS="macos"
 VM_NAME=""
 
 # --- Usage ---
 usage() {
-    echo "Usage: $0 <vm-name> [--disk <GB>] [--base <image>] [--headless]"
+    echo "Usage: $0 <vm-name> [--linux] [--disk <GB>] [--base <image>] [--headless]"
     echo ""
     echo "  <vm-name>        Required. Name for the new Tart VM."
+    echo "  --linux          Create a Linux VM (default: Debian Bookworm)."
     echo "  --disk <GB>      Disk size in GB (default: 75)."
-    echo "  --base <image>   Source Tart image to clone (default: tahoe-base)."
+    echo "  --base <image>   Source Tart image to clone."
     echo "  --headless       Run VM without a UI window."
     exit 1
 }
@@ -33,9 +36,14 @@ while [[ $# -gt 0 ]]; do
             DISK_GB="$2"
             shift 2
             ;;
+        --linux)
+            GUEST_OS="linux"
+            shift
+            ;;
         --base)
             [[ -z "${2:-}" ]] && { echo "Error: --base requires a value"; usage; }
             BASE_IMAGE="$2"
+            BASE_IMAGE_SET=true
             shift 2
             ;;
         --headless)
@@ -50,6 +58,24 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$VM_NAME" ]] && { echo "Error: <vm-name> is required"; usage; }
+
+# Set default base image based on guest OS (if not explicitly provided)
+if [[ "$BASE_IMAGE_SET" == false ]]; then
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        BASE_IMAGE="ghcr.io/cirruslabs/debian:bookworm"
+    else
+        BASE_IMAGE="ghcr.io/cirruslabs/macos-tahoe-base:latest"
+    fi
+fi
+
+# sshpass is required for Linux provisioning (no guest agent support yet)
+if [[ "$GUEST_OS" == "linux" ]]; then
+    if ! command -v sshpass &>/dev/null; then
+        echo "Error: 'sshpass' is required for Linux VM provisioning (no guest agent support)."
+        echo "Install with: brew install esolitos/ipa/sshpass"
+        exit 1
+    fi
+fi
 
 HOST_USER="$(whoami)"
 
@@ -75,13 +101,24 @@ trap cleanup EXIT
 trap 'INTERRUPTED=true; exit 130' INT TERM
 
 # --- Helper functions ---
+# VM_IP is set during step 6; SSH-based functions only work after that.
+SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR"
+
 vm_exec() {
-    tart exec "$VM_NAME" "$@"
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        sshpass -p admin ssh $SSH_OPTS admin@"$VM_IP" "$@"
+    else
+        tart exec "$VM_NAME" "$@"
+    fi
 }
 
 vm_exec_user() {
     local cmd="$1"
-    tart exec "$VM_NAME" sudo -Hu "$HOST_USER" zsh -l -c "$cmd"
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        ssh $SSH_OPTS "$HOST_USER@$VM_IP" "bash -l -c '$cmd'"
+    else
+        tart exec "$VM_NAME" sudo -Hu "$HOST_USER" zsh -l -c "$cmd"
+    fi
 }
 
 # --- Detect local base image ---
@@ -92,6 +129,7 @@ if [[ "$BASE_IMAGE" != */* ]]; then
 fi
 
 echo "=== Provision VM: $VM_NAME ==="
+echo "  Guest OS   : $GUEST_OS"
 echo "  Base image : $BASE_IMAGE"
 echo "  Disk size  : ${DISK_GB} GB"
 echo "  Headless   : $HEADLESS"
@@ -162,52 +200,98 @@ fi
 TART_PID=$!
 echo "       VM started (PID $TART_PID)."
 
-# --- [6/15] Wait for guest agent ---
-# tart exec blocks for a long time when the agent isn't up, so we run each
-# probe in the background, tick the counter every second, and kill the probe
-# after a few seconds if it hasn't finished.
-AGENT_TIMEOUT=120
-AGENT_START=$(date +%s)
-while true; do
-    tart exec "$VM_NAME" true 2>/dev/null &
-    PROBE_PID=$!
-    for _ in 1 2 3; do
-        AGENT_ELAPSED=$(( $(date +%s) - AGENT_START ))
-        if [[ $AGENT_ELAPSED -ge $AGENT_TIMEOUT ]]; then
-            kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null || true
+# --- [6/15] Wait for guest connectivity ---
+CONNECT_TIMEOUT=120
+CONNECT_START=$(date +%s)
+
+if [[ "$GUEST_OS" == "linux" ]]; then
+    # Linux: wait for IP via DHCP, then wait for SSH
+    printf "[6/15] Waiting for VM IP..."
+    VM_IP=""
+    while [[ -z "$VM_IP" ]]; do
+        CONNECT_ELAPSED=$(( $(date +%s) - CONNECT_START ))
+        if [[ $CONNECT_ELAPSED -ge $CONNECT_TIMEOUT ]]; then
             printf "\n"
-            echo "Error: Timed out waiting for guest agent after ${AGENT_TIMEOUT}s."
+            echo "Error: Timed out waiting for VM IP after ${CONNECT_TIMEOUT}s."
             exit 1
         fi
-        printf "\r[6/15] Waiting for guest agent... %ds" "$AGENT_ELAPSED"
-        if ! kill -0 "$PROBE_PID" 2>/dev/null; then
+        VM_IP=$(tart ip "$VM_NAME" 2>/dev/null || true)
+        [[ -z "$VM_IP" ]] && sleep 2
+    done
+    printf "\r[6/15] Got VM IP: $VM_IP. Waiting for SSH...%-10s\n"
+
+    while true; do
+        CONNECT_ELAPSED=$(( $(date +%s) - CONNECT_START ))
+        if [[ $CONNECT_ELAPSED -ge $CONNECT_TIMEOUT ]]; then
+            echo "Error: Timed out waiting for SSH after ${CONNECT_TIMEOUT}s."
+            exit 1
+        fi
+        printf "\r[6/15] Waiting for SSH... %ds" "$CONNECT_ELAPSED"
+        if sshpass -p admin ssh $SSH_OPTS -o ConnectTimeout=2 admin@"$VM_IP" true 2>/dev/null; then
             break
         fi
-        sleep 1
+        sleep 2
     done
-    # Check if probe finished
-    if ! kill -0 "$PROBE_PID" 2>/dev/null; then
-        if wait "$PROBE_PID" 2>/dev/null; then
-            break  # agent responded
+    printf "\r[6/15] SSH ready.%-30s\n" ""
+else
+    # macOS: wait for guest agent via tart exec
+    while true; do
+        tart exec "$VM_NAME" true 2>/dev/null &
+        PROBE_PID=$!
+        for _ in 1 2 3; do
+            CONNECT_ELAPSED=$(( $(date +%s) - CONNECT_START ))
+            if [[ $CONNECT_ELAPSED -ge $CONNECT_TIMEOUT ]]; then
+                kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null || true
+                printf "\n"
+                echo "Error: Timed out waiting for guest agent after ${CONNECT_TIMEOUT}s."
+                exit 1
+            fi
+            printf "\r[6/15] Waiting for guest agent... %ds" "$CONNECT_ELAPSED"
+            if ! kill -0 "$PROBE_PID" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+        if ! kill -0 "$PROBE_PID" 2>/dev/null; then
+            if wait "$PROBE_PID" 2>/dev/null; then
+                break
+            fi
+        else
+            kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null || true
         fi
-    else
-        # Still running — kill it and retry
-        kill "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null || true
-    fi
-done
-printf "\r[6/15] Guest agent ready.%-20s\n" ""
+    done
+    printf "\r[6/15] Guest agent ready.%-20s\n" ""
+fi
 
 # --- [7/15] Regenerate SSH host keys (cloned VMs share the base image's keys) ---
 echo "[7/15] Regenerating SSH host keys..."
-vm_exec sudo rm -f /etc/ssh/ssh_host_*
-vm_exec sudo ssh-keygen -A
-vm_exec sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+if [[ "$GUEST_OS" == "linux" ]]; then
+    # Run as a single command string — restarting sshd kills our SSH connection,
+    # so we combine everything and tolerate the connection drop.
+    vm_exec "sudo rm -f /etc/ssh/ssh_host_* && sudo ssh-keygen -A && sudo systemctl restart sshd" || true
+    # Wait for sshd to come back up with the new keys
+    sleep 2
+    for _ in $(seq 1 10); do
+        sshpass -p admin ssh $SSH_OPTS -o ConnectTimeout=2 admin@"$VM_IP" true 2>/dev/null && break
+        sleep 1
+    done
+else
+    vm_exec sudo rm -f /etc/ssh/ssh_host_*
+    vm_exec sudo ssh-keygen -A
+    vm_exec sudo launchctl kickstart -k system/com.openssh.sshd 2>/dev/null || true
+fi
 echo "       Done."
 
 # --- [8/15] Create user (skip for local base — user already exists) ---
 if [[ "$LOCAL_BASE" == false ]]; then
     echo "[8/15] Creating user '$HOST_USER' on VM..."
-    "$SCRIPT_DIR/create-macos-vm-user.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        PASS_HASH=$(openssl passwd -6 "$PASSWORD")
+        vm_exec sudo useradd -m -s /bin/bash -G sudo -p "'$PASS_HASH'" "$HOST_USER"
+        vm_exec "echo '$HOST_USER ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/$HOST_USER > /dev/null && sudo chmod 440 /etc/sudoers.d/$HOST_USER"
+    else
+        "$SCRIPT_DIR/create-macos-vm-user.sh" "$VM_NAME" "$HOST_USER" "$PASSWORD" --admin
+    fi
     echo "       User created."
 else
     echo "[8/15] Skipping user creation (local base — '$HOST_USER' already exists)."
@@ -223,7 +307,16 @@ for key_file in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
     fi
 done
 if [[ -n "$SSH_PUBKEY" ]]; then
-    vm_exec sudo -Hu "$HOST_USER" bash -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$SSH_PUBKEY' > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        HOME_DIR="/home/$HOST_USER"
+        vm_exec sudo mkdir -p "$HOME_DIR/.ssh"
+        vm_exec sudo chmod 700 "$HOME_DIR/.ssh"
+        vm_exec "echo '$SSH_PUBKEY' | sudo tee $HOME_DIR/.ssh/authorized_keys > /dev/null"
+        vm_exec sudo chmod 600 "$HOME_DIR/.ssh/authorized_keys"
+        vm_exec sudo chown -R "$HOST_USER:$HOST_USER" "$HOME_DIR/.ssh"
+    else
+        vm_exec sudo -Hu "$HOST_USER" bash -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$SSH_PUBKEY' > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+    fi
     echo "       Done."
 else
     echo "       Warning: no SSH public key found in ~/.ssh — skipping."
@@ -231,17 +324,25 @@ fi
 
 # --- [10/15] Set computer name ---
 echo "[10/15] Setting computer name to '$VM_NAME'..."
-# LocalHostName only allows alphanumerics and hyphens (used for Bonjour .local)
-LOCAL_HOSTNAME="${VM_NAME//_/-}"
-LOCAL_HOSTNAME="${LOCAL_HOSTNAME//[^a-zA-Z0-9-]/}"
-vm_exec sudo scutil --set ComputerName "$VM_NAME"
-vm_exec sudo scutil --set HostName "$VM_NAME"
-vm_exec sudo scutil --set LocalHostName "$LOCAL_HOSTNAME"
+if [[ "$GUEST_OS" == "linux" ]]; then
+    vm_exec sudo hostnamectl set-hostname "$VM_NAME"
+else
+    # LocalHostName only allows alphanumerics and hyphens (used for Bonjour .local)
+    LOCAL_HOSTNAME="${VM_NAME//_/-}"
+    LOCAL_HOSTNAME="${LOCAL_HOSTNAME//[^a-zA-Z0-9-]/}"
+    vm_exec sudo scutil --set ComputerName "$VM_NAME"
+    vm_exec sudo scutil --set HostName "$VM_NAME"
+    vm_exec sudo scutil --set LocalHostName "$LOCAL_HOSTNAME"
+fi
 echo "       Done."
 
 # --- [11/15] Clone or update vm-tools ---
 if [[ "$LOCAL_BASE" == false ]]; then
     echo "[11/15] Cloning vm-tools into VM..."
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        vm_exec sudo apt-get update -qq
+        vm_exec sudo apt-get install -y -qq git
+    fi
     vm_exec_user "mkdir -p ~/dev && git clone https://github.com/deep108/vm-tools.git ~/dev/vm-tools"
     echo "        vm-tools cloned."
 else
@@ -250,8 +351,10 @@ else
     echo "        vm-tools updated."
 fi
 
-# --- [12/15] Transfer Homebrew ownership (skip for local base — already done) ---
-if [[ "$LOCAL_BASE" == false ]]; then
+# --- [12/15] Transfer Homebrew ownership (skip for local base or Linux) ---
+if [[ "$GUEST_OS" == "linux" ]]; then
+    echo "[12/15] Skipping Homebrew ownership (Linux — not applicable)."
+elif [[ "$LOCAL_BASE" == false ]]; then
     echo "[12/15] Checking for Homebrew..."
     if vm_exec test -d /opt/homebrew; then
         echo "        Found — transferring ownership to '$HOST_USER'..."
@@ -264,15 +367,23 @@ else
     echo "[12/15] Skipping Homebrew ownership (local base — already done)."
 fi
 
-# --- [13/15] Run bootstrap (installs Homebrew via brew, chezmoi, applies dotfiles) ---
+# --- [13/15] Run bootstrap ---
 echo "[13/15] Running bootstrap..."
-vm_exec_user "zsh -l ~/dev/vm-tools/scripts/bootstrap.sh"
+if [[ "$GUEST_OS" == "linux" ]]; then
+    vm_exec_user "bash ~/dev/vm-tools/scripts/bootstrap-linux.sh"
+else
+    vm_exec_user "zsh -l ~/dev/vm-tools/scripts/bootstrap.sh"
+fi
 echo "        Bootstrap complete."
 
-# --- [14/15] Set up VS Code serve-web LaunchDaemon (skip for local base — already configured) ---
+# --- [14/15] Set up VS Code serve-web (skip for local base — already configured) ---
 if [[ "$LOCAL_BASE" == false ]]; then
     echo "[14/15] Setting up VS Code serve-web..."
-    vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-launch-agent.sh
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-systemd.sh
+    else
+        vm_exec env "SERVICE_USER=$HOST_USER" bash ~/dev/vm-tools/guest/setup-code-server-launch-agent.sh
+    fi
     echo "        Done."
 else
     echo "[14/15] Skipping VS Code serve-web (local base — already configured)."

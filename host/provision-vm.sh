@@ -115,7 +115,7 @@ vm_exec() {
 vm_exec_user() {
     local cmd="$1"
     if [[ "$GUEST_OS" == "linux" ]]; then
-        ssh $SSH_OPTS "$HOST_USER@$VM_IP" "bash -l -c '$cmd'"
+        ssh $SSH_OPTS "$HOST_USER@$VM_IP" "bash -c '$cmd'"
     else
         tart exec "$VM_NAME" sudo -Hu "$HOST_USER" zsh -l -c "$cmd"
     fi

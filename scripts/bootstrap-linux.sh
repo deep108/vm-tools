@@ -18,7 +18,14 @@ sudo apt-get install -y \
     git \
     tmux \
     neovim \
-    unzip
+    unzip \
+    zsh
+
+# Set zsh as default shell
+if [[ "$(basename "$SHELL")" != "zsh" ]]; then
+    echo -e "${BLUE}Setting default shell to zsh...${NC}"
+    sudo chsh -s /usr/bin/zsh "$USER"
+fi
 
 # Install VS Code from Microsoft's apt repo
 if ! command -v code &>/dev/null; then
@@ -29,6 +36,22 @@ if ! command -v code &>/dev/null; then
     sudo apt-get update
     sudo apt-get install -y code
 fi
+
+# Install VS Code extensions
+echo -e "${BLUE}Installing VS Code extensions...${NC}"
+extensions=(
+    ms-vscode.cpptools
+    anthropics.claude-code
+    monokai.theme-monokai-pro-vscode
+    johnpapa.vscode-peacock
+    esbenp.prettier-vscode
+    asvetliakov.vscode-neovim
+    github.copilot
+    github.copilot-chat
+)
+for ext in "${extensions[@]}"; do
+    code --install-extension "$ext" --force 2>/dev/null || echo "  Warning: failed to install $ext"
+done
 
 echo -e "${BLUE}Upgrading packages...${NC}"
 sudo apt-get upgrade -y

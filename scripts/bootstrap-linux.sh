@@ -1,6 +1,10 @@
 #!/bin/bash
-# Bootstrap a new Linux (Debian) VM: install essential packages
+# Bootstrap a new Linux (Debian) VM: install base packages, chezmoi, then apply dotfiles
 # Usage: ./bootstrap-linux.sh
+#
+# This is the Linux equivalent of bootstrap.sh (macOS).
+# Installs essential packages via apt, then hands off to chezmoi for
+# everything else (shell config, starship, VS Code extensions, etc.)
 
 set -euo pipefail
 
@@ -37,21 +41,17 @@ if ! command -v code &>/dev/null; then
     sudo apt-get install -y code
 fi
 
-# Install VS Code extensions
-echo -e "${BLUE}Installing VS Code extensions...${NC}"
-extensions=(
-    ms-vscode.cpptools
-    anthropics.claude-code
-    monokai.theme-monokai-pro-vscode
-    johnpapa.vscode-peacock
-    esbenp.prettier-vscode
-    asvetliakov.vscode-neovim
-    github.copilot
-    github.copilot-chat
-)
-for ext in "${extensions[@]}"; do
-    code --install-extension "$ext" --force 2>/dev/null || echo "  Warning: failed to install $ext"
-done
+# Install chezmoi
+if ! command -v chezmoi &>/dev/null; then
+    echo -e "${BLUE}Installing chezmoi...${NC}"
+    sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin"
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+echo -e "${GREEN}chezmoi ($(chezmoi --version 2>/dev/null | awk '{print $3}' | tr -d 'v,'))${NC}"
+
+# Init and apply dotfiles (installs remaining tools: starship, mise, extensions, etc.)
+echo -e "${BLUE}Applying dotfiles...${NC}"
+chezmoi init --apply --force deep108/dotfiles-dev
 
 echo -e "${BLUE}Upgrading packages...${NC}"
 sudo apt-get upgrade -y

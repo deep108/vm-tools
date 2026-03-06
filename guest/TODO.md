@@ -39,6 +39,12 @@
 - [x] Add VS Code extensions/settings to chezmoi
 - [x] Add starship config to chezmoi
 
+## iTerm2 Setup
+- [x] Install via Homebrew cask (both host and guest)
+- [ ] Automate font setting (MesloLGMDZ Nerd Font) — currently manual per machine
+  - Options: Dynamic Profiles JSON, or PlistBuddy to patch existing profile
+  - Location: `~/Library/Application Support/iTerm2/DynamicProfiles/`
+
 ## Golden Base Image
 - [x] Create golden image and test cloning from it
 - [x] Verify Claude Code auth persists across clones

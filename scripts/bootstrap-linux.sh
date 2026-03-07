@@ -20,10 +20,19 @@ sudo apt-get install -y \
     curl \
     file \
     git \
+    locales \
     procps \
     wget \
     gpg \
     zsh
+
+# Configure UTF-8 locale (required for starship powerline glyphs)
+if ! locale -a 2>/dev/null | grep -qi 'en_US.utf8'; then
+    echo -e "${BLUE}Configuring UTF-8 locale...${NC}"
+    sudo sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+    sudo locale-gen
+fi
+sudo update-locale LANG=en_US.UTF-8
 
 # Set zsh as default shell
 if [[ "$(basename "$SHELL")" != "zsh" ]]; then

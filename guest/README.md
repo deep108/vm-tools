@@ -1,139 +1,72 @@
 # Guest Tools
 
-macOS development utilities for VMs, fresh installs, and ephemeral environments. Self-contained scripts that quickly bootstrap a development-ready macOS system.
+Utilities for macOS and Linux guest VMs. Handles VS Code serve-web setup, macOS configuration, and legacy bootstrap scripts.
+
+> **Note:** Most tool installation is now handled by [chezmoi](https://github.com/deep108/dotfiles-dev) via the bootstrap scripts in `scripts/`. The scripts in this directory are supplementary.
 
 ## Quick Start
 
+Guest VMs are typically provisioned automatically via `host/provision-vm.sh`, which handles everything end-to-end. For manual setup:
+
 ```bash
-# Clone the repo
-git clone https://github.com/yourusername/guest-tools.git
-cd guest-tools
+# macOS VM
+zsh -l ~/dev/vm-tools/scripts/bootstrap.sh
 
-# Run machine-level bootstrap
-./scripts/check-dev-env.sh
-
-# Check for and apply updates
-./scripts/check-dev-env.sh --check-updates
+# Linux VM
+bash ~/dev/vm-tools/scripts/bootstrap-linux.sh
 ```
+
+Bootstrap installs Homebrew + chezmoi, then chezmoi installs all tools (starship, tmux, neovim, mise, VS Code, etc.).
 
 ## Scripts
 
-### `check-dev-env.sh` — Machine-Level Bootstrap
+### VS Code Serve-Web
 
-Verifies and installs core development tools on a new Mac.
+Set up VS Code as a web service accessible from the host browser:
 
-**What it installs/checks:**
-- **Homebrew** (auto-install for both Intel and Apple Silicon)
-- **mise** (version manager, auto-install via brew)
-- **chezmoi** (dotfile manager, warn if missing)
-- **starship** (shell prompt, warn if missing)
-- **tmux** (terminal multiplexer, warn if missing)
-- **Neovim** (editor, warn if missing)
-- **VS Code** (checks `/Applications`)
-- **Claude Code** (auto-install via curl)
-
-**Usage:**
 ```bash
-./scripts/check-dev-env.sh              # Check/install tools
-./scripts/check-dev-env.sh --check-updates  # Interactive update prompts
-./scripts/check-dev-env.sh --help       # Show usage
+# macOS (LaunchDaemon)
+sudo ./setup-code-server-launch-agent.sh
+
+# Linux (systemd)
+./setup-code-server-systemd.sh
+
+# Manual (foreground)
+./vscode-web-serve.sh
+
+# Access at http://<vm-ip>:8000
 ```
 
-**Update workflow (`--check-updates`):**
-- Shows outdated brew packages (mise, chezmoi, starship, tmux, neovim)
-- Prompts per-package: `Update <pkg>? [y/N]`
-- Safety: automatically skips tmux if you're inside a tmux session
+Environment variables: `BIND_HOST` (default: `0.0.0.0`), `BIND_PORT` (default: `8000`), `SERVICE_USER` (default: current user).
 
-### `setup-code-server-launch-agent.sh` — VS Code Web Server
-
-Installs VS Code `serve-web` as a macOS LaunchDaemon (system service).
-
-**Features:**
-- Auto-detects VS Code binary location
-- Runs at boot, auto-restarts on crash
-- Configurable bind address and port
-
-**Usage:**
-```bash
-# Default (0.0.0.0:8000)
-sudo ./scripts/setup-code-server-launch-agent.sh
-
-# Custom port
-BIND_PORT=9000 sudo ./scripts/setup-code-server-launch-agent.sh
-
-# Access at http://localhost:8000
-```
-
-**Environment variables:**
-- `BIND_HOST` (default: `0.0.0.0`)
-- `BIND_PORT` (default: `8000`)
-- `SERVICE_USER` (default: current user)
-
-### `vscode-web-serve.sh` — VS Code Web (Manual)
-
-One-liner to start VS Code `serve-web` manually (foreground process).
+### macOS Configuration
 
 ```bash
-./scripts/vscode-web-serve.sh
-# Access at http://localhost:8000
-```
-
-### `macos-initial-setup.sh` — macOS Configuration
-
-Disables press-and-hold for key repeat (enables Vim-style key navigation).
-
-```bash
-./scripts/macos-initial-setup.sh
-```
-
-### `unlock-keychain.sh` — Keychain Helper
-
-Unlocks the login keychain (useful for automation workflows).
-
-```bash
-./scripts/unlock-keychain.sh
+./macos-initial-setup.sh    # Disable press-and-hold for key repeat
+./unlock-keychain.sh        # Unlock login keychain
 ```
 
 ## Requirements
 
-- macOS (tested on macOS 14+)
+- macOS or Linux (Debian)
 - Internet connection (for Homebrew/tool downloads)
-- No other dependencies — scripts auto-install what they need
+- No other dependencies — bootstrap scripts install everything
 
 ## Terminal Font
 
-The starship prompt uses powerline glyphs for the VM name badge on guest VMs. Set your iTerm2 font to **MesloLGMDZ Nerd Font** (installed automatically via Homebrew on both host and guest):
+The starship prompt uses powerline glyphs for the VM name badge. Set your host terminal (iTerm2) font to **MesloLGMDZ Nerd Font** — installed automatically via Homebrew on macOS VMs. Linux VMs are headless; the font only needs to be on the host.
 
-**iTerm2 → Settings → Profiles → Text → Font → MesloLGMDZ Nerd Font**
+## Installed Tools (via chezmoi)
 
-## Design Philosophy
+Both macOS and Linux guest VMs get the same core tools via Homebrew:
 
-**Self-contained:** Each script works independently with no external dependencies beyond core macOS and Homebrew (which gets auto-installed).
+| Tool | Purpose |
+|------|---------|
+| mise | Version manager (node, python, etc.) |
+| starship | Shell prompt with VM name badge |
+| tmux | Terminal multiplexer |
+| neovim | Editor (also used by VS Code Neovim extension) |
+| jq | JSON processor |
+| VS Code | IDE (brew cask on macOS, apt on Linux) |
 
-**Minimal assumptions:** Works from a completely fresh macOS install. No sibling repos, config files, or pre-existing tools required.
-
-**Safe by default:**
-- Interactive prompts for updates (not automatic)
-- Safety guards (e.g., won't update tmux while you're in a tmux session)
-- Verbose output showing exactly what's happening
-
-**Machine-level focus:** These tools set up your _machine_, not your _project_. For project-specific setup (node versions, Firebase tools, etc.), use your project's own setup scripts.
-
-## Use Cases
-
-- **Fresh Mac setup:** Run `check-dev-env.sh` on a new machine to get development tools installed
-- **VM provisioning:** Bootstrap macOS VMs quickly with consistent tooling
-- **Remote development:** Use `setup-code-server-launch-agent.sh` to access VS Code from any browser
-- **CI/CD environments:** Automated setup of macOS build agents
-
-## Contributing
-
-Contributions welcome! Please:
-- Keep scripts self-contained (no external dependencies)
-- Follow existing code style (`set -euo pipefail`, color codes, `--help` flag)
-- Test on a fresh macOS install when possible
-- Update documentation (README, CLAUDE.md, `--help` output)
-
-## License
-
-MIT
+macOS guests additionally get iTerm2 and MesloLGMDZ Nerd Font via brew casks.

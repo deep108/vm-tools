@@ -1,140 +1,122 @@
 # host-tools
 
-Scripts and utilities for managing macOS virtual machines using **Tart** (Apple Silicon VM manager), provisioning development environments, and creating native macOS app shims for VS Code running in VMs.
+Scripts for managing macOS and Linux virtual machines using **Tart** (Apple Silicon VM manager), provisioning development environments, and setting up secure git workflows between host and guest.
 
-All scripts run on the **host machine**. For scripts that run inside a guest VM, see the companion `guest-tools` repo.
+All scripts run on the **host machine**.
 
 ## Overview
 
 This toolset covers the full VM provisioning lifecycle:
 1. Host machine setup (`Brewfile`)
-2. VM provisioning from a base image (`provision-vm.sh`)
+2. VM provisioning from a base image (`provision-vm.sh`) — supports both macOS and Linux (Debian)
 3. VM user creation (`create-macos-vm-user.sh`)
 4. VM deletion (`delete-vm.sh`)
-5. VS Code web access via app shim (`setup-vscode-webapp.sh`)
-6. Icon customization (`update-icon.sh`, `iconoverlay.swift`)
+5. Secure git workflow between host and VM (`setup-vm-git.sh`, `teardown-vm-git.sh`)
+6. VS Code web access via app shim (`setup-vscode-webapp.sh`)
+7. Icon customization (`update-icon.sh`, `iconoverlay.swift`)
 
 ## Files
 
 | File | Purpose |
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
-| `provision-vm.sh` | Full VM bootstrap: clone base image, resize disk, create user, install SSH key, set computer name, clone vm-tools, transfer Homebrew ownership, run bootstrap, set up VS Code serve-web |
+| `provision-vm.sh` | Full VM bootstrap (macOS and Linux): clone, resize, start, create user, install tools, set up VS Code serve-web |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
-| `create-macos-vm-user.sh` | Create/delete a user on a running VM via `tart exec`; supports `--admin` flag and non-interactive mode |
-| `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution with login shell |
-| `prepare-golden-image.sh` | Clean instance-specific state from a running VM and stop it, preparing it as a golden base image for cloning |
-| `host-provisioning-jobs.txt` | Manual one-time host setup tasks (e.g. `mkdir -p ~/.ssh/sockets`) |
-| `iconoverlay.swift` | Swift utility that overlays text onto `.icns` icon files |
-| `setup-vscode-webapp.sh` | Creates a standalone macOS `.app` shim for VS Code in a VM |
+| `create-macos-vm-user.sh` | Create/delete a user on a running macOS VM via `tart exec`; supports `--admin` flag |
+| `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution |
+| `prepare-golden-image.sh` | Clean instance-specific state from a running VM and stop it, preparing it as a golden base image |
+| `setup-vm-git.sh` | Set up secure git workflow: bare repo on host, restricted SSH key, VM clone (works with macOS and Linux VMs) |
+| `teardown-vm-git.sh` | Remove git workflow setup for a VM (authorized_keys entry, wrapper script entries) |
 | `ssh-tmux.sh` | SSH into a Tart VM and attach or create a named tmux session (iTerm2 CC mode) |
 | `ssh-run.sh` | SSH into a Tart VM and execute a script on the guest |
+| `setup-vscode-webapp.sh` | Creates a standalone macOS `.app` shim for VS Code in a VM |
+| `iconoverlay.swift` | Swift utility that overlays text onto `.icns` icon files |
 | `update-icon.sh` | Wrapper around `iconoverlay.swift` to apply text labels to icons |
+| `host-provisioning-jobs.txt` | Manual one-time host setup tasks |
 
 ## Requirements
 
-- macOS with Apple Silicon (M1/M2/M3)
+- macOS with Apple Silicon (M1/M2/M3/M4)
 - Tart (`brew install tart`)
-- Google Chrome (for `app_mode_loader` used by `setup-vscode-webapp.sh`)
+- `sshpass` for Linux VM provisioning (`brew install esolitos/ipa/sshpass`)
+- Google Chrome (for `setup-vscode-webapp.sh`)
 - Swift (standard on macOS)
 - Standard macOS tools: `sips`, `iconutil`, `codesign`, `curl`, `ssh`
+
+## macOS vs Linux VM Provisioning
+
+`provision-vm.sh` supports both guest OS types with a transport abstraction:
+
+| Aspect | macOS VM | Linux VM (`--linux`) |
+|--------|----------|---------------------|
+| Base image | `ghcr.io/cirruslabs/macos-tahoe-base:latest` | `ghcr.io/cirruslabs/debian:trixie` |
+| Guest communication | `tart exec` (Virtio guest agent) | SSH via `sshpass` (no guest agent) |
+| Connectivity wait | Poll `tart exec ... true` | Poll `tart ip` then SSH |
+| User creation | `create-macos-vm-user.sh` | `useradd` + sudoers.d |
+| Hostname | `scutil --set` | `hostnamectl` |
+| Homebrew | Pre-installed, ownership transferred | Installed by user during bootstrap |
+| VS Code service | LaunchDaemon (launchd) | systemd unit |
+| Bootstrap script | `scripts/bootstrap.sh` | `scripts/bootstrap-linux.sh` |
+
+Both paths converge on the same dotfiles via chezmoi, which auto-detects the OS and installs the same brew formulae (mise, starship, tmux, neovim, jq) on both platforms.
 
 ## Common Tasks
 
 ### Provision a new VM
 ```bash
-./provision-vm.sh <vm-name>                        # clone from cirruslabs base, 75 GB disk
-./provision-vm.sh <vm-name> --disk 100             # custom disk size
-./provision-vm.sh <vm-name> --base <image>         # custom base image
-./provision-vm.sh <vm-name> --headless             # no UI window
-```
-Prompts for: VM user password.
-Requires an SSH key pair on the host (`~/.ssh/id_ed25519`) for passwordless VM access.
+# macOS VM (default)
+./provision-vm.sh <vm-name>
+./provision-vm.sh <vm-name> --disk 100
+./provision-vm.sh <vm-name> --base <image>
+./provision-vm.sh <vm-name> --headless
 
-Steps performed (all guest commands use `tart exec` via Virtio guest agent — no SSH required):
-1. Check for existing VM name conflict
-2. Pull latest base image (`tart pull`)
-3. Clone base image
-4. Resize disk
-5. Start VM
-6. Wait for guest agent
-7. Regenerate SSH host keys (so cloned VMs get unique keys)
-8. Create user (via `create-macos-vm-user.sh`)
-9. Install host SSH public key for the new user
-10. Set computer name / hostname
-11. Clone vm-tools into `~/dev/vm-tools`
-12. Transfer Homebrew ownership from `admin` to the new user
-13. Run bootstrap (Homebrew, chezmoi, dotfiles)
-14. Set up VS Code serve-web LaunchDaemon
-15. Get VM IP, add host key to `known_hosts`, show summary
+# Linux VM
+./provision-vm.sh <vm-name> --linux
+./provision-vm.sh <vm-name> --linux --headless
+```
+
+### Set up git workflow for a VM
+```bash
+./setup-vm-git.sh <vm-name> deep108/my-repo
+./setup-vm-git.sh <vm-name> deep108/my-repo --clone-dir custom-name
+./setup-vm-git.sh <vm-name> deep108/my-repo --host-ip 192.168.66.1
+
+# Remove git setup
+./teardown-vm-git.sh <vm-name>
+```
 
 ### Delete a VM
 ```bash
-./delete-vm.sh <vm-name>    # stops if running, then deletes
+./delete-vm.sh <vm-name>
 ```
 
 ### Prepare a golden base image
 ```bash
-# 1. Provision a VM from registry base
 ./provision-vm.sh macos-vm-base
-
-# 2. SSH in, verify everything works
-
-# 3. Clean up and stop (clears history, SSH keys, caches, logs)
+# SSH in, verify everything works
 ./prepare-golden-image.sh macos-vm-base
-
-# 4. Clone from it
 ./provision-vm.sh my-dev-vm --base macos-vm-base
 ```
 
-### Run commands on a VM
+### Run commands on a macOS VM
 ```bash
-./tart-exec.sh <vm-name> whoami                              # run as admin
-./tart-exec.sh <vm-name> sudo brew update                    # admin with sudo
-./tart-exec.sh <vm-name> --user david 'mise install'         # run as user (login shell)
-./tart-exec.sh <vm-name> --user david ~/dev/vm-tools/scripts/bootstrap.sh
-```
-
-### Create a user on a VM
-```bash
-./create-macos-vm-user.sh <vm-name> <username>
-./create-macos-vm-user.sh -d <vm-name> <username>   # delete user
+./tart-exec.sh <vm-name> whoami
+./tart-exec.sh <vm-name> --user david 'mise install'
 ```
 
 ### SSH into a VM
 ```bash
-./ssh-tmux.sh <vm-name>                        # attach or create 'general' tmux session
+./ssh-tmux.sh <vm-name>                        # tmux session (iTerm2 CC mode)
 ./ssh-tmux.sh <vm-name> <session-name>         # named session
-./ssh-tmux.sh <vm-name> <session-name> <user>  # custom username
-
-./ssh-run.sh <vm-name> <script-path>           # run a guest-side script via SSH
-```
-
-### Set up VS Code webapp shim
-```bash
-./setup-vscode-webapp.sh <vm-name>
-# Installs to ~/Applications/VSCode VMs/<vm-name>.app
-```
-
-### Apply text overlay to an icon
-```bash
-./update-icon.sh input.icns output.icns "Label Text"
-```
-
-### Install host packages
-```bash
-brew bundle
+./ssh-run.sh <vm-name> <script-path>           # run a guest script
 ```
 
 ## Notes
 
 - Shell scripts use `set -euo pipefail` for strict error handling.
-- `provision-vm.sh` and `create-macos-vm-user.sh` use `tart exec` (Virtio guest agent / gRPC) for all guest commands — no SSH needed during provisioning. This bypasses networking entirely and eliminates the IP/SSH wait loops.
-- `tart exec` runs as the `admin` user (which has passwordless sudo). For user-context commands, `provision-vm.sh` uses `sudo -Hu <user> zsh -l -c '...'` to get the full login shell environment (Homebrew PATH, etc.).
-- `tart exec` does NOT support the `--` argument separator — it treats `--` as the command name.
-- SSH host keys are regenerated during provisioning so cloned VMs get unique keys; the new key is auto-added to the host's `known_hosts`.
-- The cirruslabs `macos-tahoe-base` image ships with Homebrew at `/opt/homebrew` owned by `admin`; `provision-vm.sh` transfers ownership to the new user so Homebrew works without sudo.
-- `tart-exec.sh` is the general-purpose wrapper for running commands on a VM; use `--user` for commands that need the user's login shell environment.
-- `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration; guest devenv scripts should do the same when attaching.
-- `setup-vscode-webapp.sh` depends on `update-icon.sh` and `iconoverlay.swift` being in the same directory.
-- `iconoverlay.swift` is compiled at runtime via `swiftc`; no pre-build step needed.
+- `tart exec` (macOS VMs only) runs as the `admin` user with passwordless sudo. For user-context commands, use `sudo -Hu <user> zsh -l -c '...'`.
+- `tart exec` does NOT support the `--` argument separator.
+- Linux VMs use SSH for all guest communication during provisioning. `sshpass` is required (cirruslabs images use admin/admin credentials).
+- SSH host keys are regenerated during provisioning so cloned VMs get unique keys.
+- `setup-vm-git.sh` auto-detects the host gateway IP from the VM's default route (uses `ip route` on Linux, `route -n get` on macOS).
+- `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration.

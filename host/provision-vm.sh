@@ -353,7 +353,7 @@ fi
 
 # --- [12/15] Transfer Homebrew ownership (skip for local base or Linux) ---
 if [[ "$GUEST_OS" == "linux" ]]; then
-    echo "[12/15] Skipping Homebrew ownership (Linux — not applicable)."
+    echo "[12/15] Skipping Homebrew ownership (Linux — user installs brew during bootstrap)."
 elif [[ "$LOCAL_BASE" == false ]]; then
     echo "[12/15] Checking for Homebrew..."
     if vm_exec test -d /opt/homebrew; then

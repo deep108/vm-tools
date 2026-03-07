@@ -215,7 +215,7 @@ ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
 
 if [[ "$HOST_IP_EXPLICIT" != true ]]; then
     echo "      Detecting host IP from VM's default route..."
-    HOST_IP=$(ssh_vm "route -n get default 2>/dev/null | awk '/gateway:/{print \$2}'" || true)
+    HOST_IP=$(ssh_vm "ip route show default 2>/dev/null | awk '/default/{print \$3}' || route -n get default 2>/dev/null | awk '/gateway:/{print \$2}'" || true)
     if [[ -z "$HOST_IP" ]]; then
         HOST_IP="192.168.66.1"
         echo -e "      ${YELLOW}! Could not auto-detect host IP — falling back to ${HOST_IP}${NC}"

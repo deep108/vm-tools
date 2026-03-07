@@ -62,7 +62,7 @@ done
 # Set default base image based on guest OS (if not explicitly provided)
 if [[ "$BASE_IMAGE_SET" == false ]]; then
     if [[ "$GUEST_OS" == "linux" ]]; then
-        BASE_IMAGE="ghcr.io/cirruslabs/debian:bookworm"
+        BASE_IMAGE="ghcr.io/cirruslabs/debian:trixie"
     else
         BASE_IMAGE="ghcr.io/cirruslabs/macos-tahoe-base:latest"
     fi

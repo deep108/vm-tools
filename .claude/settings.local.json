@@ -15,7 +15,20 @@
       "Bash(chezmoi diff:*)",
       "Bash(chezmoi init:*)",
       "Bash(chezmoi apply:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:tart.run)",
+      "WebFetch(domain:github.com)",
+      "Bash(./host/tart-exec.sh deep-habits-test:*)",
+      "Bash(starship config:*)",
+      "Bash(starship:*)",
+      "Bash(xxd:*)",
+      "Bash(/Users/daviddeepdev/.local/share/chezmoi/dot_config/starship.toml.tmpl:*)",
+      "Bash(brew info:*)",
+      "Bash(crane ls:*)",
+      "WebFetch(domain:packages.debian.org)",
+      "Bash(curl:*)",
+      "WebFetch(domain:formulae.brew.sh)",
+      "Bash(last:*)"
     ]
   }
 }

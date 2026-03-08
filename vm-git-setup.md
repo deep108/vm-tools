@@ -13,7 +13,7 @@ host/setup-vm-git.sh <vm-name> deep108/my-repo --clone-dir custom-name
 host/teardown-vm-git.sh <vm-name>
 ```
 
-The script handles all 10 steps automatically: bare repo creation, SSH key generation, authorized_keys configuration, and VM clone. It auto-detects the host gateway IP from the VM's default route (`ip route` on Linux, `route -n get` on macOS).
+The script handles all 11 steps automatically: bare repo creation, SSH key generation, host key pinning, authorized_keys configuration, and VM clone. It auto-detects the host gateway IP from the VM's default route (`ip route` on Linux, `route -n get` on macOS).
 
 ## Why
 
@@ -77,7 +77,17 @@ esac
 command="/Users/youruser/.local/bin/git-vm-<vm-name>.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAA...
 ```
 
-### 5. Configure SSH in the VM
+### 5. Seed the host's SSH public key into the VM
+
+This pins the host identity so the VM won't connect to an impersonator:
+
+```bash
+# On the host — read the public key and push it to the VM's known_hosts:
+HOST_KEY=$(awk '{print $1, $2}' /etc/ssh/ssh_host_ed25519_key.pub)
+ssh <vm-user>@<vm-ip> "mkdir -p ~/.ssh && echo '<host-gateway-ip> ${HOST_KEY}' >> ~/.ssh/known_hosts"
+```
+
+### 6. Configure SSH in the VM
 
 `~/.ssh/config` in the VM:
 
@@ -86,7 +96,7 @@ Host mac-host
   HostName <host-gateway-ip>
   User youruser
   IdentityFile ~/.ssh/mac-host-git
-  StrictHostKeyChecking accept-new
+  StrictHostKeyChecking yes
 ```
 
 Host gateway IP: auto-detected by `setup-vm-git.sh`, or find manually:
@@ -95,7 +105,7 @@ Host gateway IP: auto-detected by `setup-vm-git.sh`, or find manually:
 
 Note: Remote Login must be enabled on the host — System Settings > General > Sharing > Remote Login > On
 
-### 6. Clone from the bare repo in the VM
+### 7. Clone from the bare repo in the VM
 
 ```bash
 git clone ssh://mac-host/Users/youruser/dev/repos/my-repo.git ~/dev/my-repo

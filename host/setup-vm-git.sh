@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 
 # --- Usage ---
 usage() {
@@ -113,7 +113,7 @@ if [[ "$PREFLIGHT_FOUND" == true ]]; then
 fi
 
 # ─────────────────────────────────────────────
-# [1/10] Create bare repo on host
+# [1/11] Create bare repo on host
 # ─────────────────────────────────────────────
 echo "[1/${TOTAL_STEPS}] Creating bare repo on host..."
 if [[ -d "$BARE_REPO_PATH" ]]; then
@@ -134,7 +134,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [2/10] Create/update wrapper script on host
+# [2/11] Create/update wrapper script on host
 # ─────────────────────────────────────────────
 echo "[2/${TOTAL_STEPS}] Setting up git access wrapper script..."
 mkdir -p "$(dirname "$WRAPPER_SCRIPT")"
@@ -168,7 +168,7 @@ EOF
 fi
 
 # ─────────────────────────────────────────────
-# [3/10] Check host Remote Login
+# [3/11] Check host Remote Login
 # ─────────────────────────────────────────────
 echo "[3/${TOTAL_STEPS}] Checking host Remote Login (SSH on port 22)..."
 if ! nc -z localhost 22 2>/dev/null; then
@@ -179,7 +179,7 @@ fi
 echo -e "      ${GREEN}✓ Remote Login is enabled.${NC}"
 
 # ─────────────────────────────────────────────
-# [4/10] Get VM IP
+# [4/11] Get VM IP
 # ─────────────────────────────────────────────
 echo "[4/${TOTAL_STEPS}] Getting VM IP for '${VM_NAME}'..."
 if ! tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
@@ -225,7 +225,7 @@ if [[ "$HOST_IP_EXPLICIT" != true ]]; then
 fi
 
 # ─────────────────────────────────────────────
-# [5/10] Generate SSH key in VM (if needed)
+# [5/11] Generate SSH key in VM (if needed)
 # ─────────────────────────────────────────────
 echo "[5/${TOTAL_STEPS}] Generating SSH key in VM (if needed)..."
 KEY_EXISTS=$(ssh_vm "test -f ~/.ssh/mac-host-git && echo yes || echo no")
@@ -237,7 +237,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [6/10] Configure 'mac-host' SSH alias in VM
+# [6/11] Configure 'mac-host' SSH alias in VM
 # ─────────────────────────────────────────────
 echo "[6/${TOTAL_STEPS}] Configuring SSH host 'mac-host' in VM (if needed)..."
 EXISTING_HOSTIP=$(ssh_vm "awk '/^Host mac-host/{f=1} f && /^  HostName/{print \$2; exit}' ~/.ssh/config 2>/dev/null || true")
@@ -268,7 +268,7 @@ Host mac-host
   HostName ${HOST_IP}
   User ${HOST_USER}
   IdentityFile ~/.ssh/mac-host-git
-  StrictHostKeyChecking accept-new
+  StrictHostKeyChecking yes
 SSHCONF
     echo -e "      ${GREEN}✓ 'Host mac-host' configured in VM's ~/.ssh/config.${NC}"
 else
@@ -276,9 +276,36 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [7/10] Read VM's public key
+# [7/11] Seed host SSH public key into VM known_hosts
 # ─────────────────────────────────────────────
-echo "[7/${TOTAL_STEPS}] Reading VM's public key..."
+echo "[7/${TOTAL_STEPS}] Seeding host SSH key into VM's known_hosts..."
+HOST_SSH_PUBKEY=$(awk '{print $1, $2}' /etc/ssh/ssh_host_ed25519_key.pub)
+if [[ -z "$HOST_SSH_PUBKEY" ]]; then
+    echo -e "  ${RED}✗ Could not read /etc/ssh/ssh_host_ed25519_key.pub.${NC}" >&2
+    exit 1
+fi
+
+# Build the known_hosts line: <host-ip> <key-type> <key-data>
+KNOWN_HOSTS_LINE="${HOST_IP} ${HOST_SSH_PUBKEY}"
+
+EXISTING_HOST_KEY=$(ssh_vm "grep -F '${HOST_IP}' ~/.ssh/known_hosts 2>/dev/null || true")
+if [[ -n "$EXISTING_HOST_KEY" ]]; then
+    if echo "$EXISTING_HOST_KEY" | grep -qF "$HOST_SSH_PUBKEY"; then
+        echo -e "      ${YELLOW}! Host key already in VM's known_hosts — skipping.${NC}"
+    else
+        echo -e "      ${YELLOW}! Stale host key found — replacing.${NC}"
+        ssh_vm "sed -i.bak '/^${HOST_IP} /d' ~/.ssh/known_hosts && echo '${KNOWN_HOSTS_LINE}' >> ~/.ssh/known_hosts"
+        echo -e "      ${GREEN}✓ Updated host key in VM's known_hosts.${NC}"
+    fi
+else
+    ssh_vm "mkdir -p ~/.ssh && echo '${KNOWN_HOSTS_LINE}' >> ~/.ssh/known_hosts"
+    echo -e "      ${GREEN}✓ Seeded host key into VM's known_hosts.${NC}"
+fi
+
+# ─────────────────────────────────────────────
+# [8/11] Read VM's public key
+# ─────────────────────────────────────────────
+echo "[8/${TOTAL_STEPS}] Reading VM's public key..."
 VM_PUBKEY=$(ssh_vm "cat ~/.ssh/mac-host-git.pub")
 if [[ -z "$VM_PUBKEY" ]]; then
     echo -e "  ${RED}✗ Could not read ~/.ssh/mac-host-git.pub from VM.${NC}" >&2
@@ -287,9 +314,9 @@ fi
 echo -e "      ${GREEN}✓ Got VM public key.${NC}"
 
 # ─────────────────────────────────────────────
-# [8/10] Authorize VM key on host
+# [9/11] Authorize VM key on host
 # ─────────────────────────────────────────────
-echo "[8/${TOTAL_STEPS}] Authorizing VM key in host's ~/.ssh/authorized_keys..."
+echo "[9/${TOTAL_STEPS}] Authorizing VM key in host's ~/.ssh/authorized_keys..."
 mkdir -p "$(dirname "$AUTHORIZED_KEYS")"
 touch "$AUTHORIZED_KEYS"
 chmod 600 "$AUTHORIZED_KEYS"
@@ -324,9 +351,9 @@ open('${AUTHORIZED_KEYS}', 'w').write(''.join(out))
 fi
 
 # ─────────────────────────────────────────────
-# [9/10] Test VM → host SSH connectivity
+# [10/11] Test VM → host SSH connectivity
 # ─────────────────────────────────────────────
-echo "[9/${TOTAL_STEPS}] Testing VM → host SSH connectivity..."
+echo "[10/${TOTAL_STEPS}] Testing VM → host SSH connectivity..."
 if ssh_vm "nc -z -w 5 ${HOST_IP} 22 2>/dev/null"; then
     echo -e "      ${GREEN}✓ VM can reach host on port 22.${NC}"
 else
@@ -338,9 +365,9 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [10/10] Clone repo in VM
+# [11/11] Clone repo in VM
 # ─────────────────────────────────────────────
-echo "[10/${TOTAL_STEPS}] Cloning repo in VM (if needed)..."
+echo "[11/${TOTAL_STEPS}] Cloning repo in VM (if needed)..."
 CLONE_EXISTS=$(ssh_vm "test -d ~/dev/${CLONE_DIR}/.git && echo yes || echo no")
 if [[ "$CLONE_EXISTS" == "yes" ]]; then
     echo -e "      ${YELLOW}! ~/dev/${CLONE_DIR} already exists — skipping.${NC}"

@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-TOTAL_STEPS=11
+TOTAL_STEPS=12
 
 # --- Usage ---
 usage() {
@@ -113,7 +113,7 @@ if [[ "$PREFLIGHT_FOUND" == true ]]; then
 fi
 
 # ─────────────────────────────────────────────
-# [1/11] Create bare repo on host
+# [1/12] Create bare repo on host
 # ─────────────────────────────────────────────
 echo "[1/${TOTAL_STEPS}] Creating bare repo on host..."
 if [[ -d "$BARE_REPO_PATH" ]]; then
@@ -134,7 +134,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [2/11] Create/update wrapper script on host
+# [2/12] Create/update wrapper script on host
 # ─────────────────────────────────────────────
 echo "[2/${TOTAL_STEPS}] Setting up git access wrapper script..."
 mkdir -p "$(dirname "$WRAPPER_SCRIPT")"
@@ -168,7 +168,7 @@ EOF
 fi
 
 # ─────────────────────────────────────────────
-# [3/11] Check host Remote Login
+# [3/12] Check host Remote Login
 # ─────────────────────────────────────────────
 echo "[3/${TOTAL_STEPS}] Checking host Remote Login (SSH on port 22)..."
 if ! nc -z localhost 22 2>/dev/null; then
@@ -179,7 +179,7 @@ fi
 echo -e "      ${GREEN}✓ Remote Login is enabled.${NC}"
 
 # ─────────────────────────────────────────────
-# [4/11] Get VM IP
+# [4/12] Get VM IP
 # ─────────────────────────────────────────────
 echo "[4/${TOTAL_STEPS}] Getting VM IP for '${VM_NAME}'..."
 if ! tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
@@ -225,7 +225,7 @@ if [[ "$HOST_IP_EXPLICIT" != true ]]; then
 fi
 
 # ─────────────────────────────────────────────
-# [5/11] Generate SSH key in VM (if needed)
+# [5/12] Generate SSH key in VM (if needed)
 # ─────────────────────────────────────────────
 echo "[5/${TOTAL_STEPS}] Generating SSH key in VM (if needed)..."
 KEY_EXISTS=$(ssh_vm "test -f ~/.ssh/mac-host-git && echo yes || echo no")
@@ -237,7 +237,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [6/11] Configure 'mac-host' SSH alias in VM
+# [6/12] Configure 'mac-host' SSH alias in VM
 # ─────────────────────────────────────────────
 echo "[6/${TOTAL_STEPS}] Configuring SSH host 'mac-host' in VM (if needed)..."
 EXISTING_HOSTIP=$(ssh_vm "awk '/^Host mac-host/{f=1} f && /^  HostName/{print \$2; exit}' ~/.ssh/config 2>/dev/null || true")
@@ -276,7 +276,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [7/11] Seed host SSH public key into VM known_hosts
+# [7/12] Seed host SSH public key into VM known_hosts
 # ─────────────────────────────────────────────
 echo "[7/${TOTAL_STEPS}] Seeding host SSH key into VM's known_hosts..."
 HOST_SSH_PUBKEY=$(awk '{print $1, $2}' /etc/ssh/ssh_host_ed25519_key.pub)
@@ -303,7 +303,7 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [8/11] Read VM's public key
+# [8/12] Read VM's public key
 # ─────────────────────────────────────────────
 echo "[8/${TOTAL_STEPS}] Reading VM's public key..."
 VM_PUBKEY=$(ssh_vm "cat ~/.ssh/mac-host-git.pub")
@@ -314,7 +314,7 @@ fi
 echo -e "      ${GREEN}✓ Got VM public key.${NC}"
 
 # ─────────────────────────────────────────────
-# [9/11] Authorize VM key on host
+# [9/12] Authorize VM key on host
 # ─────────────────────────────────────────────
 echo "[9/${TOTAL_STEPS}] Authorizing VM key in host's ~/.ssh/authorized_keys..."
 mkdir -p "$(dirname "$AUTHORIZED_KEYS")"
@@ -351,7 +351,7 @@ open('${AUTHORIZED_KEYS}', 'w').write(''.join(out))
 fi
 
 # ─────────────────────────────────────────────
-# [10/11] Test VM → host SSH connectivity
+# [10/12] Test VM → host SSH connectivity
 # ─────────────────────────────────────────────
 echo "[10/${TOTAL_STEPS}] Testing VM → host SSH connectivity..."
 if ssh_vm "nc -z -w 5 ${HOST_IP} 22 2>/dev/null"; then
@@ -365,9 +365,39 @@ else
 fi
 
 # ─────────────────────────────────────────────
-# [11/11] Clone repo in VM
+# [11/12] Configure git identity in VM
 # ─────────────────────────────────────────────
-echo "[11/${TOTAL_STEPS}] Cloning repo in VM (if needed)..."
+echo "[11/${TOTAL_STEPS}] Configuring git identity in VM..."
+
+HOST_GIT_NAME=$(git config --global user.name 2>/dev/null || true)
+HOST_GIT_EMAIL=$(git config --global user.email 2>/dev/null || true)
+
+VM_GIT_NAME=$(ssh_vm "git config --global user.name 2>/dev/null || true")
+VM_GIT_EMAIL=$(ssh_vm "git config --global user.email 2>/dev/null || true")
+
+if [[ -n "$VM_GIT_NAME" && -n "$VM_GIT_EMAIL" && "$VM_GIT_NAME" == "$HOST_GIT_NAME" && "$VM_GIT_EMAIL" == "$HOST_GIT_EMAIL" ]]; then
+    echo -e "      ${YELLOW}! Git identity already configured (${VM_GIT_NAME} <${VM_GIT_EMAIL}>) — skipping.${NC}"
+else
+    echo "      Host git identity: ${HOST_GIT_NAME:-<not set>} <${HOST_GIT_EMAIL:-<not set>}>"
+    read -p "      user.name [${HOST_GIT_NAME}]: " INPUT_NAME
+    GIT_NAME="${INPUT_NAME:-$HOST_GIT_NAME}"
+    read -p "      user.email [${HOST_GIT_EMAIL}]: " INPUT_EMAIL
+    GIT_EMAIL="${INPUT_EMAIL:-$HOST_GIT_EMAIL}"
+
+    if [[ -z "$GIT_NAME" || -z "$GIT_EMAIL" ]]; then
+        echo -e "  ${RED}✗ Both user.name and user.email are required.${NC}" >&2
+        exit 1
+    fi
+
+    ssh_vm "git config --global user.name '${GIT_NAME}'"
+    ssh_vm "git config --global user.email '${GIT_EMAIL}'"
+    echo -e "      ${GREEN}✓ Git identity set: ${GIT_NAME} <${GIT_EMAIL}>${NC}"
+fi
+
+# ─────────────────────────────────────────────
+# [12/12] Clone repo in VM
+# ─────────────────────────────────────────────
+echo "[12/${TOTAL_STEPS}] Cloning repo in VM (if needed)..."
 CLONE_EXISTS=$(ssh_vm "test -d ~/dev/${CLONE_DIR}/.git && echo yes || echo no")
 if [[ "$CLONE_EXISTS" == "yes" ]]; then
     echo -e "      ${YELLOW}! ~/dev/${CLONE_DIR} already exists — skipping.${NC}"

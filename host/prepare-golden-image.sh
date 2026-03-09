@@ -79,9 +79,6 @@ else
         | head -1 || true)
 fi
 
-# Home directory root differs between macOS and Linux.
-HOME_BASE=$([[ "$GUEST_OS" == "linux" ]] && echo "/home" || echo "/Users")
-
 echo "=== Preparing golden image: $VM_NAME ==="
 echo "  Guest OS : $GUEST_OS"
 [[ -n "$VM_IP" ]] && echo "  VM IP    : $VM_IP"
@@ -91,14 +88,11 @@ echo ""
 # --- [1/7] Shell history ---
 echo "[1/7] Clearing shell history..."
 if [[ "$GUEST_OS" == "linux" ]]; then
+    vm_ssh "rm -f ~/.bash_history ~/.zsh_history"
     vm_ssh "sudo bash -c 'rm -f /home/admin/.bash_history /home/admin/.zsh_history'"
-    [[ -n "$VM_USER" ]] && \
-        vm_ssh "sudo bash -c 'rm -f \"/home/${VM_USER}/.bash_history\" \"/home/${VM_USER}/.zsh_history\"'"
 else
+    tart exec "$VM_NAME" rm -f ~/.zsh_history ~/.bash_history
     tart exec "$VM_NAME" sudo rm -f /Users/admin/.zsh_history /Users/admin/.bash_history
-    if [[ -n "$VM_USER" ]]; then
-        tart exec "$VM_NAME" sudo rm -f "/Users/$VM_USER/.zsh_history" "/Users/$VM_USER/.bash_history"
-    fi
 fi
 echo "      Done."
 
@@ -114,14 +108,11 @@ echo "      Done."
 # --- [3/7] SSH known_hosts ---
 echo "[3/7] Clearing SSH known_hosts..."
 if [[ "$GUEST_OS" == "linux" ]]; then
+    vm_ssh "rm -f ~/.ssh/known_hosts"
     vm_ssh "sudo bash -c 'rm -f /home/admin/.ssh/known_hosts'"
-    [[ -n "$VM_USER" ]] && \
-        vm_ssh "sudo bash -c 'rm -f \"/home/${VM_USER}/.ssh/known_hosts\"'"
 else
+    tart exec "$VM_NAME" rm -f ~/.ssh/known_hosts
     tart exec "$VM_NAME" sudo rm -f /Users/admin/.ssh/known_hosts
-    if [[ -n "$VM_USER" ]]; then
-        tart exec "$VM_NAME" sudo rm -f "/Users/$VM_USER/.ssh/known_hosts"
-    fi
 fi
 echo "      Done."
 
@@ -132,7 +123,7 @@ if [[ "$GUEST_OS" == "linux" ]]; then
     # Homebrew may have been installed during bootstrap
     vm_ssh "bash -l -c 'command -v brew &>/dev/null && brew cleanup --prune=all 2>/dev/null || true'" || true
 else
-    tart exec "$VM_NAME" sudo -Hu "${VM_USER:-admin}" zsh -l -c 'brew cleanup --prune=all 2>/dev/null' || true
+    tart exec "$VM_NAME" zsh -l -c 'brew cleanup --prune=all 2>/dev/null' || true
 fi
 echo "      Done."
 

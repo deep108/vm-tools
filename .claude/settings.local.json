@@ -28,7 +28,9 @@
       "WebFetch(domain:packages.debian.org)",
       "Bash(curl:*)",
       "WebFetch(domain:formulae.brew.sh)",
-      "Bash(last:*)"
+      "Bash(last:*)",
+      "Bash(ssh:*)",
+      "Bash(python3:*)"
     ]
   }
 }

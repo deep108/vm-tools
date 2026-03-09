@@ -20,7 +20,7 @@ This toolset covers the full VM provisioning lifecycle:
 | File | Purpose |
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
-| `provision-vm.sh` | Full VM bootstrap (macOS and Linux): clone, resize, start, create user, install tools, set up VS Code serve-web |
+| `provision-vm.sh` | Full VM bootstrap (macOS and Linux): clone, resize, start, create user, install tools, set up VS Code serve-web, configure auto-login, dark mode, iTerm2 font, reboot and verify |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-macos-vm-user.sh` | Create/delete a user on a running macOS VM via `tart exec`; supports `--admin` flag |
 | `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution |
@@ -54,9 +54,14 @@ This toolset covers the full VM provisioning lifecycle:
 | Connectivity wait | Poll `tart exec ... true` | Poll `tart ip` then SSH |
 | User creation | `create-macos-vm-user.sh` | `useradd` + sudoers.d |
 | Hostname | `scutil --set` | `hostnamectl` |
+| Timezone | `systemsetup -settimezone` | `timedatectl` |
 | Homebrew | Pre-installed, ownership transferred | Installed by user during bootstrap |
 | VS Code service | LaunchDaemon (launchd) | systemd unit |
 | Bootstrap script | `scripts/bootstrap.sh` | `scripts/bootstrap-linux.sh` |
+| Auto-login | `sysadminctl -autologin` + reboot | N/A |
+| Setup Assistant | Pre-dismissed via `defaults write` | N/A |
+| Dark mode | Set via `NSGlobalDomain AppleInterfaceStyle` | N/A |
+| iTerm2 font | PlistBuddy (MesloLGMDZ Nerd Font) | N/A (headless) |
 
 Both paths converge on the same dotfiles via chezmoi, which auto-detects the OS and installs the same brew formulae (mise, starship, tmux, neovim, jq) on both platforms.
 
@@ -116,7 +121,14 @@ Both paths converge on the same dotfiles via chezmoi, which auto-detects the OS 
 - Shell scripts use `set -euo pipefail` for strict error handling.
 - `tart exec` (macOS VMs only) runs as the `admin` user with passwordless sudo. For user-context commands, use `sudo -Hu <user> zsh -l -c '...'`.
 - `tart exec` does NOT support the `--` argument separator.
+- `tart exec` has a minimal PATH that excludes `/sbin` — use full paths for commands like `/sbin/reboot`.
+- `tart exec` can hang when the VM reboots (guest agent dies mid-connection) — run reboot commands in a background subshell with a timeout.
 - Linux VMs use SSH for all guest communication during provisioning. `sshpass` is required (cirruslabs images use admin/admin credentials).
 - SSH host keys are regenerated during provisioning so cloned VMs get unique keys.
+- The tart-guest-agent LaunchAgent plist has `WorkingDirectory` hardcoded to `/Users/admin`. Provisioning patches this to `/var/empty` so it works under any auto-login user.
+- macOS auto-login is configured via `sysadminctl -autologin set` (handles both loginwindow pref and kcpasswd).
+- macOS Setup Assistant dialogs are pre-dismissed by writing `DidSee*` flags to `com.apple.SetupAssistant` before first GUI login.
+- VM timezone is synced from the host during provisioning (both macOS and Linux, including local base re-provisions).
 - `setup-vm-git.sh` auto-detects the host gateway IP from the VM's default route (uses `ip route` on Linux, `route -n get` on macOS).
 - `ssh-tmux.sh` uses `tmux -CC` for iTerm2 native tmux integration.
+- Cleanup on failure removes the VM's IP from `~/.ssh/known_hosts` to avoid stale entries.

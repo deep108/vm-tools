@@ -33,10 +33,18 @@
 
 ## iTerm2 Setup
 - [x] Install via Homebrew cask (both host and guest macOS)
-- [ ] Automate font setting (MesloLGMDZ Nerd Font) — currently manual per machine
-  - Options: Dynamic Profiles JSON, or PlistBuddy to patch existing profile
+- [x] Automate font setting (MesloLGMDZ Nerd Font) — PlistBuddy in provision-vm.sh step 17/18
 
 ## Golden Base Image
 - [x] Create golden image and test cloning from it
 - [x] Verify Claude Code auth persists across clones
 - [x] Document cleanup steps (prepare-golden-image.sh)
+
+## macOS VM Auto-Login & First-Boot
+- [x] Auto-login provisioned user via `sysadminctl -autologin set`
+- [x] Pre-dismiss Setup Assistant dialogs (DidSee* flags)
+- [x] Dark mode default (`NSGlobalDomain AppleInterfaceStyle Dark`)
+- [x] Patch tart-guest-agent LaunchAgent WorkingDirectory (`/Users/admin` → `/var/empty`)
+- [x] Reboot VM after auto-login setup and verify logged-in user
+- [x] Sync timezone from host
+- [ ] Automate wallpaper setting (desktoppr or similar — osascript requires Finder permissions)

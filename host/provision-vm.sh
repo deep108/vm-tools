@@ -503,7 +503,8 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
         vm_exec osascript -e 'quit app "iTerm"' 2>/dev/null || true
         sleep 1
         vm_exec bash -c "/usr/libexec/PlistBuddy -c \"Set ':New Bookmarks':0:'Normal Font' 'MesloLGMDZNFM-Regular 12'\" '$ITERM_PLIST'"
-        echo "        Done (font: MesloLGMDZ Nerd Font Mono 12)."
+        vm_exec bash -c "/usr/libexec/PlistBuddy -c \"Set ':New Bookmarks':0:'Scrollback Lines' 100000\" '$ITERM_PLIST'"
+        echo "        Done (font: MesloLGMDZ Nerd Font Mono 12, scrollback: 100000)."
     fi
 else
     echo "[17/18] Skipping iTerm2 config (${GUEST_OS}${LOCAL_BASE:+, local base})."

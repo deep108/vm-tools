@@ -10,7 +10,7 @@ This toolset covers the full VM provisioning lifecycle:
 1. Host machine setup (`Brewfile`)
 2. VM provisioning from a base image (`provision-vm.sh`) — supports both macOS and Linux (Debian)
 3. VM user creation (`create-macos-vm-user.sh`)
-4. VM deletion (`delete-vm.sh`)
+4. VM lifecycle: run (`run-vm.sh`), stop (`stop-vm.sh`), suspend (`suspend-vm.sh`), delete (`delete-vm.sh`)
 5. Secure git workflow between host and VM (`setup-vm-git.sh`, `teardown-vm-git.sh`)
 6. VS Code web access via app shim (`setup-vscode-webapp.sh`)
 7. Icon customization (`update-icon.sh`, `iconoverlay.swift`)
@@ -21,12 +21,16 @@ This toolset covers the full VM provisioning lifecycle:
 |------|---------|
 | `Brewfile` | Homebrew packages for the host machine; apply with `brew bundle` |
 | `provision-vm.sh` | Full VM bootstrap (macOS and Linux): clone, resize, start, create user, install tools, set up VS Code serve-web, configure auto-login, dark mode, iTerm2 font, reboot and verify |
+| `run-vm.sh` | Start a VM in suspendable mode (headless by default), wait for SSH, print connection info |
+| `stop-vm.sh` | Gracefully stop a running VM (30s timeout, then force) |
+| `suspend-vm.sh` | Suspend a running VM (requires `--suspendable` start) |
 | `delete-vm.sh` | Stop (if running) and delete a Tart VM |
 | `create-macos-vm-user.sh` | Create/delete a user on a running macOS VM via `tart exec`; supports `--admin` flag |
 | `tart-exec.sh` | Run a command on a running VM via `tart exec`; supports `--user` for user-context execution |
 | `prepare-golden-image.sh` | Clean instance-specific state from a running VM and stop it, preparing it as a golden base image |
 | `setup-vm-git.sh` | Set up secure git workflow: bare repo on host, restricted SSH key, VM clone (works with macOS and Linux VMs) |
 | `teardown-vm-git.sh` | Remove git workflow setup for a VM (authorized_keys entry, wrapper script entries) |
+| `lib/pick-vm.sh` | Shared helper: interactive VM picker filtered by state (sourced by run/stop/suspend scripts) |
 | `ssh-tmux.sh` | SSH into a Tart VM and attach or create a named tmux session (iTerm2 CC mode) |
 | `ssh-run.sh` | SSH into a Tart VM and execute a script on the guest |
 | `setup-vscode-webapp.sh` | Creates a standalone macOS `.app` shim for VS Code in a VM |
@@ -78,6 +82,18 @@ Both paths converge on the same dotfiles via chezmoi, which auto-detects the OS 
 # Linux VM
 ./provision-vm.sh <vm-name> --linux
 ./provision-vm.sh <vm-name> --linux --headless
+```
+
+### Run, stop, and suspend a VM
+```bash
+./run-vm.sh                            # pick from stopped/suspended VMs
+./run-vm.sh <vm-name>                  # start specific VM (headless, suspendable)
+./run-vm.sh <vm-name> --gui            # start with GUI window + clipboard
+./run-vm.sh <vm-name> --linux          # Linux guest
+./stop-vm.sh                           # pick from running VMs
+./stop-vm.sh <vm-name>                 # stop specific VM
+./suspend-vm.sh                        # pick from running VMs
+./suspend-vm.sh <vm-name>             # suspend specific VM
 ```
 
 ### Set up git workflow for a VM

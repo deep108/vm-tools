@@ -2,21 +2,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/pick-vm.sh"
 
 usage() {
-    echo "Usage: $(basename "$0") <vm-name> [--keep-git]"
+    echo "Usage: $(basename "$0") [<vm-name>] [--keep-git]"
     echo ""
-    echo "  <vm-name>    Tart VM name to delete"
+    echo "  <vm-name>    Tart VM name to delete (if omitted, presents a list)"
     echo "  --keep-git   Skip teardown of git setup (authorized_keys, wrapper script)"
     exit 1
 }
 
-[[ $# -lt 1 || "${1:-}" == "--help" || "${1:-}" == "-h" ]] && usage
+[[ "${1:-}" == "--help" || "${1:-}" == "-h" ]] && usage
 
-VM_NAME="$1"
-shift
-
+VM_NAME=""
 KEEP_GIT=false
+
+# First non-flag argument is the VM name
+if [[ $# -gt 0 && ! "$1" =~ ^-- ]]; then
+    VM_NAME="$1"
+    shift
+fi
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --keep-git)
@@ -29,6 +35,11 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Pick VM if not specified ---
+if [[ -z "$VM_NAME" ]]; then
+    pick_vm ""
+fi
 
 if ! tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
     echo "Error: VM '$VM_NAME' not found."

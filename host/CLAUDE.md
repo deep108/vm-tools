@@ -65,7 +65,7 @@ This toolset covers the full VM provisioning lifecycle:
 | Auto-login | `sysadminctl -autologin` + reboot | N/A |
 | Setup Assistant | Pre-dismissed via `defaults write` | N/A |
 | Dark mode | Set via `NSGlobalDomain AppleInterfaceStyle` | N/A |
-| iTerm2 font | PlistBuddy (MesloLGMDZ Nerd Font) | N/A (headless) |
+| iTerm2 config | PlistBuddy (MesloLGMDZ Nerd Font, 100k scrollback) | N/A (headless) |
 
 Both paths converge on the same dotfiles via chezmoi, which auto-detects the OS and installs the same brew formulae (mise, starship, tmux, neovim, jq) on both platforms.
 

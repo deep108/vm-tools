@@ -5,15 +5,19 @@
 Use `setup-vm-git.sh` to automate the entire workflow below:
 
 ```bash
-# Set up a repo for a VM (works with both macOS and Linux VMs)
+# Clone an existing GitHub repo into a VM (GitHub → bare repo → VM clone)
 host/setup-vm-git.sh <vm-name> <github-shorthand>
 host/setup-vm-git.sh <vm-name> deep108/my-repo --clone-dir custom-name
+
+# Publish a VM repo to a new GitHub repo (VM repo → bare repo → GitHub)
+host/publish-vm-git.sh <vm-name> deep108/new-repo
+host/publish-vm-git.sh <vm-name> deep108/new-repo --repo-dir my-local-dir --public
 
 # Remove setup for a VM
 host/teardown-vm-git.sh <vm-name>
 ```
 
-The script handles all 11 steps automatically: bare repo creation, SSH key generation, host key pinning, authorized_keys configuration, and VM clone. It auto-detects the host gateway IP from the VM's default route (`ip route` on Linux, `route -n get` on macOS).
+Both scripts handle bare repo creation, SSH key generation, host key pinning, and authorized_keys configuration. They auto-detect the host gateway IP from the VM's default route (`ip route` on Linux, `route -n get` on macOS). All steps are idempotent — safe to re-run after partial failures.
 
 ## Why
 

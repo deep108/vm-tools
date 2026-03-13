@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/pick-vm.sh"
+
 usage() {
-    echo "Usage: $(basename "$0") <vm-name> <script-path> [username]"
+    echo "Usage: $(basename "$0") [<vm-name>] <script-path> [username]"
     echo
     echo "SSH into a Tart VM and execute a script on the guest."
+    echo "If <vm-name> is omitted, presents a list of running local VMs."
     echo
     echo "Arguments:"
     echo "  vm-name      Name of the Tart VM"
@@ -17,13 +21,20 @@ usage() {
     exit 0
 }
 
-if [ $# -lt 2 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+[ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && usage
+
+# If only one arg, it's the script-path — pick the VM interactively
+if [ $# -eq 1 ]; then
+    pick_vm "running"
+    SCRIPT_PATH="$1"
+    SSH_USER="$USER"
+elif [ $# -ge 2 ]; then
+    VM_NAME="$1"
+    SCRIPT_PATH="$2"
+    SSH_USER="${3:-$USER}"
+else
     usage
 fi
-
-VM_NAME="$1"
-SCRIPT_PATH="$2"
-SSH_USER="${3:-$USER}"
 
 VM_IP="$(tart ip "$VM_NAME")"
 

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/pick-vm.sh"
+
 usage() {
-    echo "Usage: $(basename "$0") <vm-name> [session-name] [username]"
+    echo "Usage: $(basename "$0") [<vm-name>] [session-name] [username]"
     echo
     echo "SSH into a Tart VM and attach or create a tmux session."
+    echo "If <vm-name> is omitted, presents a list of running local VMs."
     echo
     echo "Arguments:"
     echo "  vm-name       Name of the Tart VM"
@@ -18,13 +22,18 @@ usage() {
     exit 0
 }
 
-if [ $# -lt 1 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    usage
-fi
+[ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] && usage
 
-VM_NAME="$1"
-SESSION="${2:-general}"
-SSH_USER="${3:-$USER}"
+VM_NAME="${1:-}"
+if [ -n "$VM_NAME" ]; then
+    shift
+    SESSION="${1:-general}"
+    SSH_USER="${2:-$USER}"
+else
+    pick_vm "running"
+    SESSION="general"
+    SSH_USER="$USER"
+fi
 
 VM_IP="$(tart ip "$VM_NAME")"
 

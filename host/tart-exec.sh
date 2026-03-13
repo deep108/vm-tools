@@ -1,10 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/pick-vm.sh"
+
 usage() {
-    echo "Usage: $(basename "$0") <vm-name> [--user <username>] <command> [args...]"
+    echo "Usage: $(basename "$0") [<vm-name>] [--user <username>] <command> [args...]"
     echo
     echo "Execute a command on a running Tart VM via the Virtio guest agent."
+    echo "If <vm-name> is omitted, presents a list of running local VMs."
     echo
     echo "By default, commands run as the admin user. Use --user to run as a"
     echo "specific user with a full login shell (zsh -l), which provides the"
@@ -23,12 +27,18 @@ usage() {
     exit 0
 }
 
-if [[ $# -lt 2 ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
-    usage
-fi
+[[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]] && usage
 
-VM_NAME="$1"
-shift
+# If the first arg is --user or looks like a command (not a VM name),
+# pick the VM interactively. Otherwise, treat it as the VM name.
+if [[ $# -eq 0 ]]; then
+    usage
+elif [[ "$1" == "--user" ]]; then
+    pick_vm "running"
+else
+    VM_NAME="$1"
+    shift
+fi
 
 TARGET_USER=""
 if [[ "${1:-}" == "--user" ]]; then

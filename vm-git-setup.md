@@ -2,22 +2,24 @@
 
 ## Automated Setup
 
-Use `setup-vm-git.sh` to automate the entire workflow below:
+Use `bridge-vm-git.sh` to automate the entire workflow below. It detects what already exists (GitHub repo, host bare repo, VM working copy) and does only what's needed:
 
 ```bash
 # Clone an existing GitHub repo into a VM (GitHub → bare repo → VM clone)
-host/setup-vm-git.sh <vm-name> <github-shorthand>
-host/setup-vm-git.sh <vm-name> deep108/my-repo --clone-dir custom-name
+host/bridge-vm-git.sh <vm-name> deep108/my-repo
+host/bridge-vm-git.sh <vm-name> deep108/my-repo --repo-dir custom-name
 
 # Publish a VM repo to a new GitHub repo (VM repo → bare repo → GitHub)
-host/publish-vm-git.sh <vm-name> deep108/new-repo
-host/publish-vm-git.sh <vm-name> deep108/new-repo --repo-dir my-local-dir --public
+host/bridge-vm-git.sh <vm-name> deep108/new-repo --public
+
+# Re-run after partial failure or VM recreation — picks up where it left off
+host/bridge-vm-git.sh <vm-name> deep108/my-repo
 
 # Remove setup for a VM
 host/teardown-vm-git.sh <vm-name>
 ```
 
-Both scripts handle bare repo creation, SSH key generation, host key pinning, and authorized_keys configuration. They auto-detect the host gateway IP from the VM's default route (`ip route` on Linux, `route -n get` on macOS). All steps are idempotent — safe to re-run after partial failures.
+The script handles bare repo creation, SSH key generation, host key pinning, and authorized_keys configuration. It auto-detects the host gateway IP from the VM's default route (`ip route` on Linux, `route -n get` on macOS). All steps are idempotent — safe to re-run after partial failures.
 
 ## Why
 
@@ -42,7 +44,7 @@ A bare repo is a git database with no working tree (no checked-out files). It's 
 
 ## Manual Setup Steps
 
-If you prefer to set things up manually (or need to understand what `setup-vm-git.sh` does):
+If you prefer to set things up manually (or need to understand what `bridge-vm-git.sh` does):
 
 ### 1. Create the bare repo on the host
 
@@ -103,7 +105,7 @@ Host mac-host
   StrictHostKeyChecking yes
 ```
 
-Host gateway IP: auto-detected by `setup-vm-git.sh`, or find manually:
+Host gateway IP: auto-detected by `bridge-vm-git.sh`, or find manually:
 - macOS VM: `route -n get default | awk '/gateway:/{print $2}'`
 - Linux VM: `ip route show default | awk '/default/{print $3}'`
 
@@ -155,8 +157,8 @@ git pull
 
 ## Adding More Repos Later
 
-Run `setup-vm-git.sh` again with the new repo — it appends case entries to the existing wrapper script:
+Run `bridge-vm-git.sh` again with the new repo — it appends case entries to the existing wrapper script:
 
 ```bash
-host/setup-vm-git.sh <vm-name> deep108/another-repo
+host/bridge-vm-git.sh <vm-name> deep108/another-repo
 ```

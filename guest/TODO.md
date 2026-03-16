@@ -18,5 +18,6 @@
 - [x] Golden base image workflow (prepare-golden-image.sh, Claude Code auth persists)
 - [x] macOS auto-login, Setup Assistant, dark mode, guest agent patch, timezone sync
 - [x] publish-vm-git.sh (reverse of setup-vm-git: VM repo → bare repo → new GitHub repo)
+- [x] Merge setup-vm-git.sh and publish-vm-git.sh into bridge-vm-git.sh (state-detecting unified script)
 - [x] Interactive VM picker for ssh-tmux, ssh-run, tart-exec, run/stop/suspend/delete-vm
 - [x] SSH URLs for GitHub remotes in setup-vm-git and publish-vm-git

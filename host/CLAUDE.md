@@ -40,7 +40,7 @@ The git workflow (`bridge-vm-git.sh`) uses a layered SSH architecture:
 - `xcode-select -s` pointed to installed Xcode app (xcodes names it `Xcode-<ver>.app`)
 - tart-guest-agent installed via brew; requires two launchd plists (from `cirruslabs/macos-image-templates`): LaunchDaemon (`--run-daemon`, handles `tart exec`) + LaunchAgent (`--run-agent`, handles clipboard)
 - SSH host keys are regenerated so cloned VMs get unique identities
-- macOS auto-login: manual `/etc/kcpassword` XOR encoding + loginwindow plist (`sysadminctl -autologin` fails over SSH with error:22)
+- macOS auto-login: `sysadminctl -autologin set` via `tart exec` (must run post-reboot — Virtio channel needs a full boot cycle; fails over SSH with error:22 due to XPC not being accessible)
 - Gatekeeper quarantine stripped from VS Code and iTerm2 after bootstrap
 - VM timezone synced from host (both macOS and Linux, including local base re-provisions)
 - Reboot triggered via SSH; guest agent verified via `tart exec` after reboot

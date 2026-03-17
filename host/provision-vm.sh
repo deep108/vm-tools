@@ -163,8 +163,11 @@ if [[ "$GUEST_OS" == "macos" ]]; then
 fi
 echo ""
 
-# --- Prompt for password upfront (skip for local base — user already exists) ---
+# --- Prompt for credentials upfront (so provisioning can run unattended after this point,
+# except for the Xcode 2FA prompt which requires interaction) ---
 PASSWORD=""
+APPLE_ID=""
+APPLE_PASSWORD=""
 if [[ "$LOCAL_BASE" == false ]]; then
     while true; do
         read -s -p "Password for new user '$HOST_USER': " PASSWORD
@@ -177,6 +180,13 @@ if [[ "$LOCAL_BASE" == false ]]; then
             echo "Passwords do not match. Please try again."
         fi
     done
+    if [[ "$GUEST_OS" == "macos" && "$NO_XCODE" == false ]]; then
+        echo ""
+        echo "Xcode installation requires an Apple ID."
+        read -p "Apple ID email: " APPLE_ID
+        read -s -p "Apple ID password: " APPLE_PASSWORD
+        echo
+    fi
     echo ""
 fi
 
@@ -376,10 +386,13 @@ if [[ "$LOCAL_BASE" == false ]]; then
         vm_exec "sudo apt-get install -y -qq git"
     else
         # Vanilla macOS has no git and no Homebrew. The Homebrew installer auto-detects
-        # the missing Xcode CLT and installs it (which provides git, clang, etc.).
-        # The Homebrew installer auto-detects the missing Xcode CLT and installs it
-        # (which provides git, clang, make, etc.).
-        vm_exec_user "curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | NONINTERACTIVE=1 /bin/bash"
+        # the missing Xcode CLT and installs it (which provides git, clang, make, etc.).
+        # Retry once — the Homebrew CDN/GitHub can occasionally hiccup.
+        vm_exec_user "curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | NONINTERACTIVE=1 /bin/bash" || {
+            echo "        Homebrew install failed — retrying in 5s..."
+            sleep 5
+            vm_exec_user "curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh | NONINTERACTIVE=1 /bin/bash"
+        }
     fi
     echo "        Done."
 else
@@ -419,16 +432,15 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false && "$NO_XCODE" == false ]
     # Tap is XcodesOrg/made (repo: XcodesOrg/homebrew-made).
     vm_exec_user "mkdir -p \$(brew --prefix)/Library/Taps/xcodesorg && git clone https://github.com/XcodesOrg/homebrew-made \$(brew --prefix)/Library/Taps/xcodesorg/homebrew-made"
     vm_exec_user "brew install xcodes aria2"
-    echo "        Xcode installation requires an Apple ID."
-    read -p "        Apple ID email: " APPLE_ID
-    read -s -p "        Apple ID password: " APPLE_PASSWORD
-    echo ""
     # Use ssh -t for pseudo-TTY so Apple 2FA prompts flow through to the host terminal.
     # xcodes uses XCODES_USERNAME/XCODES_PASSWORD env vars for non-interactive auth.
-    # Run xcodes with sudo to avoid interactive password prompts during install finalization.
-    # Passwordless sudo is already configured; -E preserves XCODES_* env vars.
+    # Must run with sudo: xcodes uses its own privilege escalation (not sudo) for finishing
+    # steps, which prompts for password and ignores sudoers. Running as root avoids this.
+    # -E preserves XCODES_* env vars through sudo.
     ssh -t $SSH_KEY "$HOST_USER@$VM_IP" \
         "XCODES_USERNAME='$APPLE_ID' XCODES_PASSWORD='$APPLE_PASSWORD' zsh -l -c 'sudo -E xcodes install $XCODE_VERSION --experimental-unxip'"
+    # Fix ownership: sudo -E runs as root with user's HOME, leaving root-owned cache files
+    vm_exec_user "sudo chown -R \$(whoami) ~/Library/Application\ Support/com.robotsandpencils.xcodes 2>/dev/null" || true
     # Point xcode-select to the installed Xcode (xcodes names it Xcode-<ver>.app)
     vm_exec_user "sudo xcode-select -s /Applications/Xcode-*.app/Contents/Developer"
     vm_exec_user "sudo xcodebuild -license accept"
@@ -448,71 +460,12 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
     vm_exec_user "mkdir -p \$(brew --prefix)/Library/Taps/cirruslabs && git clone https://github.com/cirruslabs/homebrew-cli \$(brew --prefix)/Library/Taps/cirruslabs/homebrew-cli"
     vm_exec_user "brew install tart-guest-agent"
     # The brew formula only installs the binary — no launchd plists.
-    # Two components are needed (see cirruslabs/macos-image-templates):
-    #   1. LaunchDaemon (--run-daemon): system-level, runs at boot, handles tart exec
-    #   2. LaunchAgent (--run-agent): user-level, runs at login, handles clipboard etc.
-    vm_exec_user "sudo tee /Library/LaunchDaemons/org.cirruslabs.tart-guest-daemon.plist > /dev/null" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>org.cirruslabs.tart-guest-daemon</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/tart-guest-agent</string>
-        <string>--run-daemon</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>/var/empty</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>/tmp/tart-guest-daemon.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/tart-guest-daemon.log</string>
-</dict>
-</plist>
-PLIST
-    vm_exec_user "sudo tee /Library/LaunchAgents/org.cirruslabs.tart-guest-agent.plist > /dev/null" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>org.cirruslabs.tart-guest-agent</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/tart-guest-agent</string>
-        <string>--run-agent</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>/var/empty</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin</string>
-        <key>TERM</key>
-        <string>xterm-256color</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>/tmp/tart-guest-agent.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/tart-guest-agent.log</string>
-</dict>
-</plist>
-PLIST
+    # Fetch official plists from cirruslabs/macos-image-templates so we track upstream changes.
+    # Two components: LaunchDaemon (tart exec) + LaunchAgent (clipboard, user session).
+    PLIST_BASE="https://raw.githubusercontent.com/cirruslabs/macos-image-templates/main/data"
+    vm_exec_user "curl -fsSL $PLIST_BASE/tart-guest-daemon.plist | sudo tee /Library/LaunchDaemons/org.cirruslabs.tart-guest-daemon.plist > /dev/null"
+    # Fix WorkingDirectory in agent plist: upstream hardcodes /Users/admin, patch in pipeline
+    vm_exec_user "curl -fsSL $PLIST_BASE/tart-guest-agent.plist | sed s,/Users/admin,/var/empty, | sudo tee /Library/LaunchAgents/org.cirruslabs.tart-guest-agent.plist > /dev/null"
     echo "        Done."
 else
     echo "[15/20] Skipping tart-guest-agent (${GUEST_OS}${LOCAL_BASE:+, local base})."
@@ -562,7 +515,7 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
     # Reboot via SSH — connection will drop, which is expected
     vm_exec_user "sudo /sbin/reboot" || true
     # Wait for guest agent to come back (verifies tart-guest-agent works for future use)
-    REBOOT_TIMEOUT=120
+    REBOOT_TIMEOUT=180
     REBOOT_START=$(date +%s)
     while true; do
         tart exec "$VM_NAME" true 2>/dev/null &
@@ -577,8 +530,10 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
                 echo "        Diagnosing via SSH..."
                 echo "        Console user: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "stat -f '%Su' /dev/console" 2>/dev/null || echo 'SSH failed')"
                 echo "        Guest agent process: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "pgrep -l tart-guest-agent" 2>/dev/null || echo 'not running')"
+                echo "        LaunchDaemon plist: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "ls -la /Library/LaunchDaemons/org.cirruslabs.tart-guest-daemon.plist" 2>/dev/null || echo 'missing')"
                 echo "        LaunchAgent plist: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "ls -la /Library/LaunchAgents/org.cirruslabs.tart-guest-agent.plist" 2>/dev/null || echo 'missing')"
-                echo "        Agent log: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "tail -5 /var/log/tart-guest-agent.log" 2>/dev/null || echo 'no log')"
+                echo "        Daemon log: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "tail -5 /tmp/tart-guest-daemon.log" 2>/dev/null || echo 'no log')"
+                echo "        Agent log: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "tail -5 /tmp/tart-guest-agent.log" 2>/dev/null || echo 'no log')"
                 exit 1
             fi
             printf "\r[18/20] Waiting for guest agent after reboot... %ds" "$REBOOT_ELAPSED"
@@ -611,26 +566,31 @@ fi
 if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
     echo "[19/20] Configuring iTerm2 default font..."
     ITERM_PLIST="/Users/${HOST_USER}/Library/Preferences/com.googlecode.iterm2.plist"
-    # Strip Gatekeeper quarantine so iTerm2 can launch without a dialog
     # Launch iTerm2 to generate default preferences, then quit (requires GUI/WindowServer)
     vm_exec_gui open -a iTerm
     ITERM_WAIT=0
     while ! vm_exec_gui test -f "$ITERM_PLIST" 2>/dev/null; do
         if [[ $ITERM_WAIT -ge 30 ]]; then
             echo "        Warning: timed out waiting for iTerm2 plist — skipping font config."
-            vm_exec_gui osascript -e 'quit app "iTerm"' 2>/dev/null || true
+            vm_exec_gui pkill -x iTerm2 2>/dev/null || true
             break
         fi
         sleep 1
         ITERM_WAIT=$((ITERM_WAIT + 1))
     done
     if vm_exec_gui test -f "$ITERM_PLIST" 2>/dev/null; then
-        sleep 2  # let iTerm2 finish writing defaults
-        vm_exec_gui osascript -e 'quit app "iTerm"' 2>/dev/null || true
-        sleep 1
-        vm_exec_gui bash -c "/usr/libexec/PlistBuddy -c \"Set ':New Bookmarks':0:'Normal Font' 'MesloLGMDZNFM-Regular 12'\" '$ITERM_PLIST'"
-        vm_exec_gui bash -c "/usr/libexec/PlistBuddy -c \"Set ':New Bookmarks':0:'Scrollback Lines' 100000\" '$ITERM_PLIST'"
-        echo "        Done (font: MesloLGMDZ Nerd Font Mono 12, scrollback: 100000)."
+        # iTerm2 writes preferences on quit — kill gracefully so it saves, then edit the plist.
+        # SIGTERM triggers a clean shutdown; no confirmation dialog on a fresh launch with no sessions.
+        sleep 2
+        vm_exec_gui killall -TERM iTerm2 2>/dev/null || true
+        sleep 2  # let it save and exit
+        if vm_exec_gui bash -c "/usr/libexec/PlistBuddy -c \"Print ':New Bookmarks':0:'Normal Font'\" '$ITERM_PLIST'" &>/dev/null; then
+            vm_exec_gui bash -c "/usr/libexec/PlistBuddy -c \"Set ':New Bookmarks':0:'Normal Font' 'MesloLGMDZNFM-Regular 12'\" '$ITERM_PLIST'"
+            vm_exec_gui bash -c "/usr/libexec/PlistBuddy -c \"Set ':New Bookmarks':0:'Scrollback Lines' 100000\" '$ITERM_PLIST'"
+            echo "        Done (font: MesloLGMDZ Nerd Font Mono 12, scrollback: 100000)."
+        else
+            echo "        Warning: 'New Bookmarks' not found in plist — skipping font config."
+        fi
     fi
 else
     echo "[19/20] Skipping iTerm2 config (${GUEST_OS}${LOCAL_BASE:+, local base})."

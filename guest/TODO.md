@@ -7,6 +7,8 @@
 - [ ] Decide if auth is needed for VS Code serve-web (probably yes)
 - [ ] check-dev-tool-updates Linux testing
 - [ ] Automate wallpaper setting (desktoppr or similar — osascript requires Finder permissions)
+- [ ] Repo-scoped GitHub credentials for bridge-vm-git.sh — deploy keys are the viable option (fine-grained PATs can't be created programmatically). Two approaches: host deploy key (keeps bare repo review gate) or VM deploy key (simpler, direct push, but loses review gate). Limitation: SSH git only, one key per repo.
+- [ ] Check for ownership side effects from `sudo xcodes install` (Xcode app owned by root instead of user — may be fine since `/Applications` is typically root-owned)
 
 ## Done
 
@@ -21,3 +23,4 @@
 - [x] Merge setup-vm-git.sh and publish-vm-git.sh into bridge-vm-git.sh (state-detecting unified script)
 - [x] Interactive VM picker for ssh-tmux, ssh-run, tart-exec, run/stop/suspend/delete-vm
 - [x] SSH URLs for GitHub remotes in setup-vm-git and publish-vm-git
+- [x] Switch to macos-tahoe-vanilla base image (SSH-based provisioning, Xcode install, brew from scratch, guest agent via brew)

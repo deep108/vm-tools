@@ -34,10 +34,10 @@ sudo ./setup-code-server-launch-agent.sh
 # Manual (foreground)
 ./vscode-web-serve.sh
 
-# Access at http://<vm-ip>:8000
+# Access at http://<vm-ip>:18000
 ```
 
-Environment variables: `BIND_HOST` (default: `0.0.0.0`), `BIND_PORT` (default: `8000`), `SERVICE_USER` (default: current user).
+Environment variables: `BIND_HOST` (default: `0.0.0.0`), `BIND_PORT` (default: `18000`), `SERVICE_USER` (default: current user).
 
 ### macOS Configuration
 
@@ -67,6 +67,12 @@ Both macOS and Linux guest VMs get the same core tools via Homebrew:
 | tmux | Terminal multiplexer |
 | neovim | Editor (also used by VS Code Neovim extension) |
 | jq | JSON processor |
+| wget | HTTP downloader |
+| tree | Directory visualization |
+| htop | Interactive process viewer |
+| watch | Repeat commands periodically |
 | VS Code | IDE (brew cask on macOS, apt on Linux) |
+
+Brew-over-OS (newer than what ships with macOS/Debian): curl, openssl, git, rsync.
 
 macOS guests additionally get iTerm2 and MesloLGMDZ Nerd Font via brew casks.

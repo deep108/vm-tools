@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Configuration
 BIND_HOST="${BIND_HOST:-0.0.0.0}"
-BIND_PORT="${BIND_PORT:-8000}"
+BIND_PORT="${BIND_PORT:-18000}"
 SERVICE_USER="${SERVICE_USER:-$(whoami)}"
 SERVICE_LABEL="com.user.vscode.serve-web"
 

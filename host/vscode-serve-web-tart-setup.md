@@ -19,14 +19,14 @@ Since the browser-based extension marketplace has CORS issues, install extension
 ### Step 1: Start serve-web in the VM
 
 ```bash
-code serve-web --host 0.0.0.0 --port 8000 --accept-server-license-terms
+code serve-web --host 0.0.0.0 --port 18000 --accept-server-license-terms
 ```
 
 ### Step 2: Set up SSH port forwarding (for browser access)
 
 On the **host machine**:
 ```bash
-ssh -L 8000:localhost:8000 admin@$(tart ip <your-vm-name>)
+ssh -L 18000:localhost:18000 admin@$(tart ip <your-vm-name>)
 ```
 
 ### Step 3: Install extensions via CLI (inside the VM)
@@ -48,7 +48,7 @@ Find extension IDs on the [VS Code Marketplace](https://marketplace.visualstudio
 ### Step 4: Reload in browser
 
 After installing extensions via CLI:
-1. Open `http://localhost:8000` in your host browser
+1. Open `http://localhost:18000` in your host browser
 2. Run "Reload Window" from the Command Palette (Cmd+Shift+P or F1)
 3. Extensions should now appear and be active
 
@@ -89,18 +89,18 @@ If you only need basic editing without extensions:
 
 ### From VM directly
 ```bash
-code serve-web --port 8000
-# Access at http://localhost:8000 inside the VM browser
+code serve-web --port 18000
+# Access at http://localhost:18000 inside the VM browser
 ```
 
 ### From host via SSH tunnel
 ```bash
 # In VM:
-code serve-web --host 0.0.0.0 --port 8000
+code serve-web --host 0.0.0.0 --port 18000
 
 # On host:
-ssh -L 8000:localhost:8000 admin@$(tart ip <vm-name>)
-# Access at http://localhost:8000 on host browser
+ssh -L 18000:localhost:18000 admin@$(tart ip <vm-name>)
+# Access at http://localhost:18000 on host browser
 ```
 
 ---

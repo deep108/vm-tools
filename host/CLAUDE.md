@@ -41,7 +41,8 @@ The git workflow (`bridge-vm-git.sh`) uses a layered SSH architecture:
 - tart-guest-agent installed via brew; requires two launchd plists (from `cirruslabs/macos-image-templates`): LaunchDaemon (`--run-daemon`, handles `tart exec`) + LaunchAgent (`--run-agent`, handles clipboard)
 - SSH host keys are regenerated so cloned VMs get unique identities
 - macOS auto-login: `sysadminctl -autologin set` via `tart exec` (must run post-reboot — Virtio channel needs a full boot cycle; fails over SSH with error:22 due to XPC not being accessible)
-- Gatekeeper quarantine stripped from VS Code and iTerm2 after bootstrap
+- `--android` flag installs Android Studio (brew cask), Java 21 (mise), Android command-line tools (direct zip), and SDK components (sdkmanager). macOS only, fresh provision only.
+- Gatekeeper quarantine stripped from VS Code and iTerm2 after bootstrap (and Android Studio when `--android`)
 - VM timezone synced from host (both macOS and Linux, including local base re-provisions)
 - Reboot triggered via SSH; guest agent verified via `tart exec` after reboot
 - GUI commands (iTerm2 `open`/`osascript`) use `vm_exec_gui` (tart exec) post-reboot

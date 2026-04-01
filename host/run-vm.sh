@@ -6,6 +6,7 @@ source "$SCRIPT_DIR/lib/pick-vm.sh"
 
 # --- Defaults ---
 GUI=false
+NESTED=false
 GUEST_OS="macos"
 VM_NAME=""
 SSH_USER="$USER"
@@ -13,15 +14,17 @@ SSH_TIMEOUT=120
 
 # --- Usage ---
 usage() {
-    echo "Usage: $(basename "$0") [<vm-name>] [--linux] [--gui] [--user <username>] [--timeout <seconds>]"
+    echo "Usage: $(basename "$0") [<vm-name>] [--linux] [--gui] [--nested] [--user <username>] [--timeout <seconds>]"
     echo ""
-    echo "Start a Tart VM in suspendable mode and wait until it is SSH-reachable."
+    echo "Start a Tart VM and wait until it is SSH-reachable."
+    echo "macOS VMs run in suspendable mode; Linux VMs do not (tart limitation)."
     echo "If <vm-name> is omitted, presents a list of stopped/suspended local VMs."
     echo ""
     echo "  <vm-name>            Name of the Tart VM to run."
     echo "  --linux              VM is a Linux guest (default: macOS)."
     echo "  --gui                Show the VM window with clipboard sharing."
     echo "                       (Default: headless, no clipboard.)"
+    echo "  --nested             Enable nested virtualization (exposes /dev/kvm to Linux guests)."
     echo "  --user <username>    SSH username to test connectivity (default: \$USER)."
     echo "  --timeout <seconds>  SSH wait timeout in seconds (default: 120)."
     exit 1
@@ -42,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --gui)
             GUI=true
+            shift
+            ;;
+        --nested)
+            NESTED=true
             shift
             ;;
         --user)
@@ -70,29 +77,53 @@ if [[ -z "$VM_NAME" ]]; then
 fi
 
 # --- Verify VM exists and is not running ---
-if ! tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
+VM_LINE=$(tart list 2>/dev/null | awk -v name="$VM_NAME" 'NR>1 && $2==name')
+if [[ -z "$VM_LINE" ]]; then
     echo "Error: VM '$VM_NAME' not found."
     exit 1
 fi
 
-STATE=$(tart list 2>/dev/null | awk -v name="$VM_NAME" 'NR>1 && $2==name {print $NF}')
+STATE=$(echo "$VM_LINE" | awk '{print $NF}')
 if [[ "$STATE" == "running" ]]; then
     echo "Error: VM '$VM_NAME' is already running."
     exit 1
 fi
 
+# --- Auto-detect guest OS from disk size ---
+# HACK: tart doesn't expose the guest OS type. Cirrus Labs base images use 50GB disks
+# for macOS and 20GB for Linux, and our provisioning preserves these defaults. We use
+# a 25GB threshold to guess: disk < 25GB → Linux, else macOS. The --linux flag still
+# works as an explicit override. This will break if someone creates a small macOS image
+# or a large (>= 25GB) Linux image, but it covers all standard Cirrus Labs bases.
+if [[ "$GUEST_OS" == "macos" ]]; then
+    DISK_GB=$(echo "$VM_LINE" | awk '{print $3}')
+    if [[ "$DISK_GB" -lt 25 ]] 2>/dev/null; then
+        GUEST_OS="linux"
+    fi
+fi
+
 # --- Build tart run command ---
-TART_ARGS=(run "$VM_NAME" --suspendable)
+TART_ARGS=(run "$VM_NAME")
+if [[ "$GUEST_OS" == "macos" ]]; then
+    TART_ARGS+=(--suspendable)
+fi
 
 if [[ "$GUI" != true ]]; then
     TART_ARGS+=(--no-graphics --no-clipboard)
 fi
-# Note: --suspendable already disables audio, so --no-audio is not needed
+if [[ "$NESTED" == true ]]; then
+    TART_ARGS+=(--nested)
+fi
+# Note: --suspendable (macOS only) already disables audio, so --no-audio is not needed
 
 # --- Start VM ---
-echo "Starting '$VM_NAME' (${GUEST_OS}, $(if [[ "$GUI" == true ]]; then echo "GUI"; else echo "headless"; fi), suspendable)..."
-tart "${TART_ARGS[@]}" &
+RUN_MODE="$(if [[ "$GUI" == true ]]; then echo "GUI"; else echo "headless"; fi)"
+[[ "$NESTED" == true ]] && RUN_MODE+=", nested"
+[[ "$GUEST_OS" == "macos" ]] && RUN_MODE+=", suspendable"
+echo "Starting '$VM_NAME' (${GUEST_OS}, ${RUN_MODE})..."
+tart "${TART_ARGS[@]}" &>/dev/null &
 TART_PID=$!
+disown $TART_PID
 echo "VM started (PID $TART_PID)."
 
 # --- Wait for IP ---
@@ -101,6 +132,11 @@ VM_IP=""
 
 printf "Waiting for VM IP..."
 while [[ -z "$VM_IP" ]]; do
+    if ! kill -0 "$TART_PID" 2>/dev/null; then
+        printf "\n"
+        echo "Error: tart process died (PID $TART_PID). VM failed to start."
+        exit 1
+    fi
     ELAPSED=$(( $(date +%s) - START_TIME ))
     if [[ $ELAPSED -ge $SSH_TIMEOUT ]]; then
         printf "\n"
@@ -117,6 +153,11 @@ printf "\rGot VM IP: %s%-20s\n" "$VM_IP" ""
 # --- Wait for SSH ---
 printf "Waiting for SSH..."
 while true; do
+    if ! kill -0 "$TART_PID" 2>/dev/null; then
+        printf "\n"
+        echo "Error: tart process died (PID $TART_PID). VM crashed during startup."
+        exit 1
+    fi
     ELAPSED=$(( $(date +%s) - START_TIME ))
     if [[ $ELAPSED -ge $SSH_TIMEOUT ]]; then
         printf "\n"
@@ -136,8 +177,8 @@ printf "\rSSH ready.%-30s\n" ""
 # --- Gather VM info ---
 TOTAL_ELAPSED=$(( $(date +%s) - START_TIME ))
 
-# Get VM disk size
-DISK_SIZE=$(tart list 2>/dev/null | awk -v name="$VM_NAME" 'NR>1 && $2==name {print $4}')
+# Get VM disk size (re-read tart list since VM is now running)
+DISK_SIZE=$(tart list 2>/dev/null | awk -v name="$VM_NAME" 'NR>1 && $2==name {print $3 " GB"}')
 
 # Get hostname from guest
 VM_HOSTNAME=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
@@ -155,5 +196,5 @@ echo "  PID      : $TART_PID"
 echo "  Ready in : ${TOTAL_ELAPSED}s"
 echo ""
 echo "Connect:  ssh $SSH_USER@$VM_IP"
-echo "Suspend:  tart suspend $VM_NAME"
+[[ "$GUEST_OS" == "macos" ]] && echo "Suspend:  tart suspend $VM_NAME"
 echo "Stop:     tart stop $VM_NAME"

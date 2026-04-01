@@ -7,23 +7,29 @@ BASE_IMAGE=""
 BASE_IMAGE_SET=false
 HEADLESS=false
 GUEST_OS="macos"
+LINUX_DISTRO="debian"
 VM_NAME=""
 NO_XCODE=false
 XCODE_VERSION="--latest"
 ANDROID=false
+NON_INTERACTIVE=false
 
 # --- Usage ---
 usage() {
-    echo "Usage: $0 <vm-name> [--linux] [--disk <GB>] [--base <image>] [--headless] [--no-xcode] [--xcode-version <ver>] [--android]"
+    echo "Usage: $0 <vm-name> [--linux] [--ubuntu] [--disk <GB>] [--base <image>] [--headless] [--no-xcode] [--xcode-version <ver>] [--android]"
     echo ""
     echo "  <vm-name>             Required. Name for the new Tart VM."
-    echo "  --linux               Create a Linux VM (default: Debian Bookworm)."
+    echo "  --linux               Create a Linux VM (default: Debian Trixie)."
+    echo "  --ubuntu              Use Ubuntu 24.04 instead of Debian (implies --linux)."
     echo "  --disk <GB>           Disk size in GB (default: 75)."
     echo "  --base <image>        Source Tart image to clone."
     echo "  --headless            Run VM without a UI window."
     echo "  --no-xcode            Skip Xcode installation (for quick test provisions)."
     echo "  --xcode-version <ver> Xcode version to install (default: latest stable)."
-    echo "  --android             Install Android Studio, SDK, and Java (macOS only)."
+    echo "  --android             Install Android dev tools (macOS: Android Studio + SDK;"
+    echo "                        Linux: IntelliJ IDEA CE + SDK + XFCE desktop)."
+    echo "                        Emulator runs on host — use start-android-dev.sh."
+    echo "  --non-interactive     Skip prompts; use 'admin' as password (for testing)."
     exit 1
 }
 
@@ -44,6 +50,11 @@ while [[ $# -gt 0 ]]; do
             GUEST_OS="linux"
             shift
             ;;
+        --ubuntu)
+            GUEST_OS="linux"
+            LINUX_DISTRO="ubuntu"
+            shift
+            ;;
         --base)
             [[ -z "${2:-}" ]] && { echo "Error: --base requires a value"; usage; }
             BASE_IMAGE="$2"
@@ -60,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --android)
             ANDROID=true
+            shift
+            ;;
+        --non-interactive)
+            NON_INTERACTIVE=true
             shift
             ;;
         --xcode-version)
@@ -79,7 +94,11 @@ done
 # Set default base image based on guest OS (if not explicitly provided)
 if [[ "$BASE_IMAGE_SET" == false ]]; then
     if [[ "$GUEST_OS" == "linux" ]]; then
-        BASE_IMAGE="ghcr.io/cirruslabs/debian:trixie"
+        if [[ "$LINUX_DISTRO" == "ubuntu" ]]; then
+            BASE_IMAGE="ghcr.io/cirruslabs/ubuntu:24.04"
+        else
+            BASE_IMAGE="ghcr.io/cirruslabs/debian:trixie"
+        fi
     else
         BASE_IMAGE="ghcr.io/cirruslabs/macos-tahoe-vanilla:latest"
     fi
@@ -145,12 +164,26 @@ vm_exec_user() {
     # Pass command via stdin (herestring) to avoid single-quote escaping issues.
     # Using -s makes the shell read commands from stdin.
     if [[ "$GUEST_OS" == "linux" ]]; then
+        # Early steps (10-13) run before zsh is installed by bootstrap — use bash.
+        # Post-bootstrap steps that need Homebrew/mise should use vm_exec_user_zsh.
         ssh $SSH_KEY "$HOST_USER@$VM_IP" "bash -l -s" <<< "$cmd"
     else
         # GIT_CONFIG_COUNT overrides the Xcode CLT system gitconfig's credential.helper=osxkeychain.
         # The osxkeychain helper requires a GUI session and fails over non-interactive SSH with
         # "could not read Username". Setting credential.helper to empty disables it.
         ssh $SSH_KEY "$HOST_USER@$VM_IP" "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= zsh -l -s" <<< "$cmd"
+    fi
+}
+
+# Like vm_exec_user but uses zsh on Linux (required for Homebrew/mise PATH).
+# Only usable after bootstrap (step 13) installs zsh and chezmoi applies .zprofile.
+vm_exec_user_zsh() {
+    local cmd="$1"
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        ssh $SSH_KEY "$HOST_USER@$VM_IP" "zsh -l -s" <<< "$cmd"
+    else
+        # macOS vm_exec_user already uses zsh
+        vm_exec_user "$cmd"
     fi
 }
 
@@ -167,7 +200,7 @@ if [[ "$BASE_IMAGE" != */* ]]; then
 fi
 
 echo "=== Provision VM: $VM_NAME ==="
-echo "  Guest OS   : $GUEST_OS"
+echo "  Guest OS   : ${GUEST_OS}$(if [[ "$GUEST_OS" == "linux" ]]; then echo " ($LINUX_DISTRO)"; fi)"
 echo "  Base image : $BASE_IMAGE"
 echo "  Disk size  : ${DISK_GB} GB"
 echo "  Headless   : $HEADLESS"
@@ -175,7 +208,14 @@ echo "  Host user  : $HOST_USER"
 echo "  Local base : $LOCAL_BASE"
 if [[ "$GUEST_OS" == "macos" ]]; then
     echo "  Xcode      : $(if [[ "$NO_XCODE" == true ]]; then echo "skip"; else echo "$XCODE_VERSION"; fi)"
-    echo "  Android    : $ANDROID"
+fi
+if [[ "$ANDROID" == true ]]; then
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        echo "  Android    : true (IntelliJ IDEA CE + SDK + XFCE)"
+    else
+        echo "  Android    : true (Android Studio + SDK)"
+    fi
+    echo "               Emulator runs on host (start-android-dev.sh)"
 fi
 echo ""
 
@@ -185,23 +225,28 @@ PASSWORD=""
 APPLE_ID=""
 APPLE_PASSWORD=""
 if [[ "$LOCAL_BASE" == false ]]; then
-    while true; do
-        read -s -p "Password for new user '$HOST_USER': " PASSWORD
-        echo
-        read -s -p "Confirm password: " PASSWORD_CONFIRM
-        echo
-        if [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]]; then
-            break
-        else
-            echo "Passwords do not match. Please try again."
+    if [[ "$NON_INTERACTIVE" == true ]]; then
+        PASSWORD="admin"
+        echo "Non-interactive mode: using default password."
+    else
+        while true; do
+            read -s -p "Password for new user '$HOST_USER': " PASSWORD
+            echo
+            read -s -p "Confirm password: " PASSWORD_CONFIRM
+            echo
+            if [[ "$PASSWORD" == "$PASSWORD_CONFIRM" ]]; then
+                break
+            else
+                echo "Passwords do not match. Please try again."
+            fi
+        done
+        if [[ "$GUEST_OS" == "macos" && "$NO_XCODE" == false ]]; then
+            echo ""
+            echo "Xcode installation requires an Apple ID."
+            read -p "Apple ID email: " APPLE_ID
+            read -s -p "Apple ID password: " APPLE_PASSWORD
+            echo
         fi
-    done
-    if [[ "$GUEST_OS" == "macos" && "$NO_XCODE" == false ]]; then
-        echo ""
-        echo "Xcode installation requires an Apple ID."
-        read -p "Apple ID email: " APPLE_ID
-        read -s -p "Apple ID password: " APPLE_PASSWORD
-        echo
     fi
     echo ""
 fi
@@ -233,13 +278,27 @@ tart clone "$BASE_IMAGE" "$VM_NAME"
 VM_CLONED=true
 echo "       Done."
 
-# --- [4/22] Resize disk ---
+# --- [4/22] Resize disk (and set resources for Linux Android VMs) ---
+DISK_GREW=false
+DISK_IMG="$HOME/.tart/vms/$VM_NAME/disk.img"
+DISK_SIZE_BEFORE=$(stat -f%z "$DISK_IMG")
 echo "[4/22] Setting disk size to ${DISK_GB} GB..."
 if RESIZE_OUT=$(tart set "$VM_NAME" --disk-size "$DISK_GB" 2>&1); then
-    echo "       Done."
+    DISK_SIZE_AFTER=$(stat -f%z "$DISK_IMG")
+    if [[ "$DISK_SIZE_AFTER" -gt "$DISK_SIZE_BEFORE" ]]; then
+        DISK_GREW=true
+        echo "       Done."
+    else
+        echo "       (Already ${DISK_GB} GB — no resize needed.)"
+    fi
 else
     echo "       Warning: could not resize disk: $RESIZE_OUT"
     echo "       (Disks can only grow, not shrink. Continuing with base image disk size.)"
+fi
+if [[ "$GUEST_OS" == "linux" && "$ANDROID" == true ]]; then
+    echo "       Setting resources for Android dev (4 CPUs, 8 GB RAM, 1920x1200)..."
+    tart set "$VM_NAME" --cpu 4 --memory 8192 --display 1920x1200
+    echo "       Done."
 fi
 
 # Remove recovery partition from disk image (host-side, before boot) so the APFS container
@@ -247,8 +306,8 @@ fi
 #   1=Apple_APFS_ISC | 2=Apple_APFS (container) | 3=Apple_APFS_Recovery
 # diskutil refuses to erase APFS Recovery containers, so we use sgdisk to delete the
 # partition entry directly from the GPT (operates on the raw file, no hdiutil needed).
-if [[ "$GUEST_OS" == "macos" ]]; then
-    DISK_IMG="$HOME/.tart/vms/$VM_NAME/disk.img"
+# Skip entirely if disk didn't grow (golden images already have recovery removed).
+if [[ "$GUEST_OS" == "macos" && "$DISK_GREW" == true ]]; then
     if [[ ! -f "$DISK_IMG" ]]; then
         echo "Error: Disk image not found at $DISK_IMG"
         exit 1
@@ -261,11 +320,12 @@ fi
 
 # --- [5/22] Start VM ---
 echo "[5/22] Starting VM..."
+TART_RUN_ARGS=("$VM_NAME")
 if [[ "$HEADLESS" == true ]]; then
-    tart run "$VM_NAME" --no-graphics &
-else
-    tart run "$VM_NAME" &
+    TART_RUN_ARGS+=(--no-graphics)
 fi
+# Note: --nested no longer needed — emulator runs on host, not in VM
+tart run "${TART_RUN_ARGS[@]}" &
 TART_PID=$!
 echo "       VM started (PID $TART_PID)."
 
@@ -306,7 +366,8 @@ echo "[7/22] Regenerating SSH host keys..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     # Run as a single command string — restarting sshd kills our SSH connection,
     # so we combine everything and tolerate the connection drop.
-    vm_exec "sudo rm -f /etc/ssh/ssh_host_* && sudo ssh-keygen -A && sudo systemctl restart sshd" || true
+    # Ubuntu uses 'ssh', Debian uses 'sshd' — try both
+    vm_exec "sudo rm -f /etc/ssh/ssh_host_* && sudo ssh-keygen -A && (sudo systemctl restart sshd 2>/dev/null || sudo systemctl restart ssh)" || true
 else
     vm_exec "sudo rm -f /etc/ssh/ssh_host_* && sudo ssh-keygen -A && sudo launchctl kickstart -k system/com.openssh.sshd" || true
 fi
@@ -319,7 +380,7 @@ done
 echo "       Done."
 
 # Resize APFS container to fill the disk (recovery partition was removed host-side in step 4)
-if [[ "$GUEST_OS" == "macos" ]]; then
+if [[ "$GUEST_OS" == "macos" && "$DISK_GREW" == true ]]; then
     vm_exec "yes | sudo diskutil repairDisk disk0"
     vm_exec "APFS=\$(diskutil list physical disk0 | grep 'Apple_APFS ' | grep -v ISC | awk '{print \$NF}') && \
         [ -n \"\$APFS\" ] && sudo diskutil apfs resizeContainer \"\$APFS\" 0"
@@ -369,36 +430,42 @@ else
 fi
 
 # --- [9/22] Install/update SSH public key for user ---
-echo "[9/22] Installing SSH public key for '$HOST_USER'..."
-SSH_PUBKEY=""
-for key_file in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
-    if [[ -f "$key_file" ]]; then
-        SSH_PUBKEY=$(cat "$key_file")
-        break
-    fi
-done
-if [[ -n "$SSH_PUBKEY" ]]; then
-    if [[ "$GUEST_OS" == "linux" ]]; then
-        HOME_DIR="/home/$HOST_USER"
-        vm_exec sudo mkdir -p "$HOME_DIR/.ssh"
-        vm_exec sudo chmod 700 "$HOME_DIR/.ssh"
-        vm_exec "echo '$SSH_PUBKEY' | sudo tee $HOME_DIR/.ssh/authorized_keys > /dev/null"
-        vm_exec sudo chmod 600 "$HOME_DIR/.ssh/authorized_keys"
-        vm_exec sudo chown -R "$HOST_USER:$HOST_USER" "$HOME_DIR/.ssh"
-    else
-        # Use sshpass with the new user's password — after sysadminctl creates a user,
-        # admin SSH may become temporarily unreliable on macOS.
-        HOME_DIR="/Users/$HOST_USER"
-        # Wait for the new user's SSH to become available
-        for _ in $(seq 1 15); do
-            sshpass -p "$PASSWORD" ssh $SSH_PASS -o ConnectTimeout=2 "$HOST_USER@$VM_IP" true 2>/dev/null && break
-            sleep 2
-        done
-        sshpass -p "$PASSWORD" ssh $SSH_PASS "$HOST_USER@$VM_IP" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$SSH_PUBKEY' > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
-    fi
-    echo "       Done."
+if [[ "$LOCAL_BASE" == true ]]; then
+    echo "[9/22] Skipping SSH key install (local base — key already in place)."
 else
-    echo "       Warning: no SSH public key found in ~/.ssh — skipping."
+    echo "[9/22] Installing SSH public key for '$HOST_USER'..."
+    SSH_PUBKEY=""
+    for key_file in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
+        if [[ -f "$key_file" ]]; then
+            SSH_PUBKEY=$(cat "$key_file")
+            break
+        fi
+    done
+    if [[ -n "$SSH_PUBKEY" ]]; then
+        if [[ "$GUEST_OS" == "linux" ]]; then
+            # Use sshpass with the new user's password — admin SSH can become
+            # unreliable after useradd on Debian (same pattern as macOS below).
+            HOME_DIR="/home/$HOST_USER"
+            for _ in $(seq 1 15); do
+                sshpass -p "$PASSWORD" ssh $SSH_PASS -o ConnectTimeout=2 "$HOST_USER@$VM_IP" true 2>/dev/null && break
+                sleep 2
+            done
+            sshpass -p "$PASSWORD" ssh $SSH_PASS "$HOST_USER@$VM_IP" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$SSH_PUBKEY' > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+        else
+            # Use sshpass with the new user's password — after sysadminctl creates a user,
+            # admin SSH may become temporarily unreliable on macOS.
+            HOME_DIR="/Users/$HOST_USER"
+            # Wait for the new user's SSH to become available
+            for _ in $(seq 1 15); do
+                sshpass -p "$PASSWORD" ssh $SSH_PASS -o ConnectTimeout=2 "$HOST_USER@$VM_IP" true 2>/dev/null && break
+                sleep 2
+            done
+            sshpass -p "$PASSWORD" ssh $SSH_PASS "$HOST_USER@$VM_IP" "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$SSH_PUBKEY' > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+        fi
+        echo "       Done."
+    else
+        echo "       Warning: no SSH public key found in ~/.ssh — skipping."
+    fi
 fi
 
 # --- [10/22] Set computer name and timezone ---
@@ -498,9 +565,9 @@ else
     echo "[14/22] Skipping Xcode installation (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [15/22] Install Android SDK (macOS only, fresh provision, opt-in with --android) ---
-if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false && "$ANDROID" == true ]]; then
-    echo "[15/22] Installing Android development tools..."
+# --- [15/22] Install Android SDK (fresh provision, opt-in with --android) ---
+if [[ "$LOCAL_BASE" == false && "$ANDROID" == true && "$GUEST_OS" == "macos" ]]; then
+    echo "[15/22] Installing Android development tools (macOS)..."
     # Install Java via mise (used by sdkmanager, Gradle, Firebase emulators)
     # Android Studio bundles its own JDK internally — this Java is for CLI tools
     vm_exec_user "mise use -g java@temurin-21"
@@ -526,6 +593,104 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false && "$ANDROID" == true ]];
             'build-tools;35.0.0' \
             'build-tools;36.0.0' \
             'system-images;android-36;google_apis;arm64-v8a'"
+    echo "        Done."
+elif [[ "$LOCAL_BASE" == false && "$ANDROID" == true && "$GUEST_OS" == "linux" ]]; then
+    echo "[15/22] Installing Android development tools (Linux)..."
+    # Emulator runs on the host (Apple Silicon has no nested virt for macOS VMs,
+    # and Cuttlefish in Linux VMs is too slow). This installs SDK + IDE for building
+    # and editing; use start-android-dev.sh on the host for the emulator + ADB bridge.
+
+    # --- System packages (XFCE desktop, x86_64 compat for SDK tools, unzip) ---
+    echo "        Installing XFCE and dependencies..."
+    vm_exec_user "sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        xfce4 xfce4-terminal lightdm lightdm-gtk-greeter dbus-x11 qemu-user-static binfmt-support unzip"
+
+    # --- x86_64 multiarch (Android SDK tools are x86_64-only on Linux) ---
+    # Pin existing ARM64 sources so they don't try to fetch amd64 packages,
+    # then add archive.ubuntu.com as amd64 source for the x86_64 runtime libs.
+    echo "        Setting up x86_64 multiarch for Android tools..."
+    vm_exec_user "sudo sed -i '/^Types: deb\$/a Architectures: arm64' /etc/apt/sources.list.d/ubuntu.sources && \
+        sudo dpkg --add-architecture amd64 && \
+        echo 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble main restricted universe multiverse
+deb [arch=amd64] http://archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse' | \
+            sudo tee /etc/apt/sources.list.d/amd64.list > /dev/null && \
+        sudo apt-get update -qq && \
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libc6:amd64 libstdc++6:amd64 zlib1g:amd64"
+    echo "        x86_64 multiarch configured."
+
+    # Configure LightDM as default display manager + autologin
+    vm_exec_user "sudo mkdir -p /etc/lightdm/lightdm.conf.d && \
+        printf '[Seat:*]\nautologin-user=$HOST_USER\nautologin-user-timeout=0\nautologin-session=xfce\ngreeter-session=lightdm-gtk-greeter\n' | \
+        sudo tee /etc/lightdm/lightdm.conf.d/50-autologin.conf > /dev/null && \
+        echo '/usr/sbin/lightdm' | sudo tee /etc/X11/default-display-manager > /dev/null"
+    echo "        XFCE installed."
+
+    # --- Java via mise ---
+    echo "        Installing Java (Temurin 21)..."
+    vm_exec_user_zsh "mise use -g java@temurin-21"
+    # Symlink to /usr/lib/jvm so IntelliJ auto-detects it (mise path is non-standard)
+    vm_exec_user_zsh "sudo mkdir -p /usr/lib/jvm && sudo ln -sf \$(mise where java) /usr/lib/jvm/temurin-21"
+    echo "        Java installed."
+
+    # --- Desktop session environment ---
+    # IntelliJ and other GUI apps launched from XFCE don't inherit mise's shell setup.
+    # Write ~/.xsessionrc so JAVA_HOME, ANDROID_HOME, and PATH are set for the entire X session.
+    vm_exec_user_zsh "JAVA_DIR=\$(mise where java) && \
+        cat > \$HOME/.xsessionrc << XSESS
+export JAVA_HOME=\$JAVA_DIR
+export ANDROID_HOME=\$HOME/Android/Sdk
+export PATH=\$JAVA_DIR/bin:\$HOME/Android/Sdk/platform-tools:\$HOME/Android/Sdk/cmdline-tools/latest/bin:\\\$PATH
+XSESS"
+    echo "        Desktop environment configured."
+
+    # --- IntelliJ IDEA Community Edition (native ARM64) ---
+    echo "        Installing IntelliJ IDEA CE..."
+    # Fetch the latest ARM64 tar.gz URL from JetBrains data services
+    # Key is "linuxARM64" (not "linux" — that's x86_64)
+    IDEA_URL=$(curl -fsSL 'https://data.services.jetbrains.com/products/releases?code=IIC&latest=true&type=release' \
+        | grep -o '"linuxARM64":{"link":"[^"]*"' | head -1 | grep -o 'https://[^"]*')
+    if [[ -z "$IDEA_URL" ]]; then
+        echo "        Error: Could not determine IntelliJ IDEA CE ARM64 download URL."
+        exit 1
+    fi
+    echo "        Downloading from: $IDEA_URL"
+    vm_exec_user "curl -fSL --retry 3 --retry-delay 5 '$IDEA_URL' -o /tmp/idea.tar.gz && \
+        sudo tar -xzf /tmp/idea.tar.gz -C /opt && \
+        sudo mv /opt/idea-IC-* /opt/idea-IC && \
+        sudo ln -sf /opt/idea-IC/bin/idea /usr/local/bin/idea && \
+        rm /tmp/idea.tar.gz"
+    # Desktop entry for XFCE application menu
+    IDEA_DESKTOP="[Desktop Entry]
+Name=IntelliJ IDEA CE
+Exec=/opt/idea-IC/bin/idea %f
+Icon=/opt/idea-IC/bin/idea.svg
+Type=Application
+Categories=Development;IDE;
+Terminal=false
+StartupWMClass=jetbrains-idea-ce"
+    vm_exec_user "echo '$IDEA_DESKTOP' | sudo tee /usr/share/applications/idea-ce.desktop > /dev/null"
+    echo "        IntelliJ IDEA CE installed."
+
+    # --- Android command-line tools ---
+    echo "        Installing Android SDK..."
+    vm_exec_user "export ANDROID_HOME=\$HOME/Android/Sdk && \
+        mkdir -p \$ANDROID_HOME/cmdline-tools && \
+        curl -fSL --retry 3 --retry-delay 5 https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdtools.zip && \
+        unzip -qo /tmp/cmdtools.zip -d \$ANDROID_HOME/cmdline-tools && \
+        mv \$ANDROID_HOME/cmdline-tools/cmdline-tools \$ANDROID_HOME/cmdline-tools/latest && \
+        rm /tmp/cmdtools.zip"
+
+    # Accept licenses and install SDK components (needs mise for JAVA_HOME).
+    vm_exec_user_zsh "export ANDROID_HOME=\$HOME/Android/Sdk && \
+        export JAVA_HOME=\$(mise where java) && \
+        yes | \$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses && \
+        \$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            'platform-tools' \
+            'platforms;android-35' \
+            'platforms;android-36' \
+            'build-tools;35.0.0' \
+            'build-tools;36.0.0'"
+    echo "        Android SDK installed."
     echo "        Done."
 elif [[ "$ANDROID" != true ]]; then
     echo "[15/22] Skipping Android (--android not specified)."
@@ -564,8 +729,29 @@ else
     echo "[17/22] Skipping VS Code serve-web (local base — already configured)."
 fi
 
-# --- [18/22] Reboot VM and verify guest agent (macOS only, fresh provision) ---
-if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
+# --- [18/22] Reboot VM and verify (macOS: guest agent; Linux Android: LightDM) ---
+if [[ "$GUEST_OS" == "linux" && "$LOCAL_BASE" == false && "$ANDROID" == true ]]; then
+    echo "[18/22] Rebooting Linux VM for LightDM..."
+    vm_exec_user "sudo reboot" || true
+    # Wait for SSH to come back (no guest agent on Linux)
+    REBOOT_TIMEOUT=120
+    REBOOT_START=$(date +%s)
+    sleep 5  # give it time to actually go down
+    while true; do
+        REBOOT_ELAPSED=$(( $(date +%s) - REBOOT_START ))
+        if [[ $REBOOT_ELAPSED -ge $REBOOT_TIMEOUT ]]; then
+            printf "\n"
+            echo "Error: Timed out waiting for SSH after reboot (${REBOOT_TIMEOUT}s)."
+            exit 1
+        fi
+        printf "\r[18/22] Waiting for SSH after reboot... %ds" "$REBOOT_ELAPSED"
+        if ssh $SSH_KEY -o ConnectTimeout=2 "$HOST_USER@$VM_IP" true 2>/dev/null; then
+            break
+        fi
+        sleep 2
+    done
+    printf "\r[18/22] SSH ready after reboot.%-30s\n" ""
+elif [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
     echo "[18/22] Rebooting VM..."
     # Reboot via SSH — connection will drop, which is expected
     vm_exec_user "sudo /sbin/reboot" || true

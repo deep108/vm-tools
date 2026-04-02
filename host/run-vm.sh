@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/pick-vm.sh"
 
 # --- Defaults ---
-GUI=false
+GUI=""  # empty = auto (macOS: GUI, Linux: headless)
 NESTED=false
 GUEST_OS="macos"
 VM_NAME=""
@@ -14,7 +14,7 @@ SSH_TIMEOUT=120
 
 # --- Usage ---
 usage() {
-    echo "Usage: $(basename "$0") [<vm-name>] [--linux] [--gui] [--nested] [--user <username>] [--timeout <seconds>]"
+    echo "Usage: $(basename "$0") [<vm-name>] [--linux] [--gui] [--headless] [--nested] [--user <username>] [--timeout <seconds>]"
     echo ""
     echo "Start a Tart VM and wait until it is SSH-reachable."
     echo "macOS VMs run in suspendable mode; Linux VMs do not (tart limitation)."
@@ -23,7 +23,8 @@ usage() {
     echo "  <vm-name>            Name of the Tart VM to run."
     echo "  --linux              VM is a Linux guest (default: macOS)."
     echo "  --gui                Show the VM window with clipboard sharing."
-    echo "                       (Default: headless, no clipboard.)"
+    echo "  --headless           Run without graphics or clipboard."
+    echo "                       (Default: macOS = GUI, Linux = headless.)"
     echo "  --nested             Enable nested virtualization (exposes /dev/kvm to Linux guests)."
     echo "  --user <username>    SSH username to test connectivity (default: \$USER)."
     echo "  --timeout <seconds>  SSH wait timeout in seconds (default: 120)."
@@ -45,6 +46,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --gui)
             GUI=true
+            shift
+            ;;
+        --headless)
+            GUI=false
             shift
             ;;
         --nested)
@@ -99,6 +104,15 @@ if [[ "$GUEST_OS" == "macos" ]]; then
     DISK_GB=$(echo "$VM_LINE" | awk '{print $3}')
     if [[ "$DISK_GB" -lt 25 ]] 2>/dev/null; then
         GUEST_OS="linux"
+    fi
+fi
+
+# --- Default GUI mode based on guest OS (if not explicitly set) ---
+if [[ -z "$GUI" ]]; then
+    if [[ "$GUEST_OS" == "macos" ]]; then
+        GUI=true
+    else
+        GUI=false
     fi
 fi
 

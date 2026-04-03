@@ -44,6 +44,7 @@ The git workflow (`bridge-vm-git.sh`) uses a layered SSH architecture:
 - macOS auto-login: `sysadminctl -autologin set` via `tart exec` (must run post-reboot — Virtio channel needs a full boot cycle; fails over SSH with error:22 due to XPC not being accessible)
 - `--android` flag installs Android dev tools. macOS: Android Studio (brew cask), Java 21 (mise), cmdline-tools (direct zip), SDK components + emulator + system images. Linux: XFCE desktop + LightDM with GTK greeter (autologin), IntelliJ IDEA CE (native ARM64 tar.gz to /opt/idea-IC), Java 21 (mise), cmdline-tools (Linux zip), SDK components (no emulator — runs on host). Linux Android VMs get 4 CPUs, 8 GB RAM, 1920x1200 display.
 - The Android emulator runs on the **host**, not inside VMs (Apple blocks nested virt for macOS guests; Linux emulator segfaults on ARM64). Use `start-android-dev.sh` on the host to manage the emulator and optionally bridge to a VM or sandbox.
+- `run-vm.sh` defaults to non-suspendable mode (audio works); `--suspendable` flag enables suspend/resume (macOS only, disables audio)
 - `run-vm.sh` supports `--nested` flag to enable nested virtualization (passes `--nested` to `tart run`)
 ## Sandboxed Android Development
 

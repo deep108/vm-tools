@@ -6,6 +6,7 @@ source "$SCRIPT_DIR/lib/pick-vm.sh"
 
 # --- Defaults ---
 GUI=""  # empty = auto (macOS: GUI, Linux: headless)
+SUSPENDABLE=false
 NESTED=false
 GUEST_OS="macos"
 VM_NAME=""
@@ -14,10 +15,9 @@ SSH_TIMEOUT=120
 
 # --- Usage ---
 usage() {
-    echo "Usage: $(basename "$0") [<vm-name>] [--linux] [--gui] [--headless] [--nested] [--user <username>] [--timeout <seconds>]"
+    echo "Usage: $(basename "$0") [<vm-name>] [--linux] [--gui] [--headless] [--suspendable] [--nested] [--user <username>] [--timeout <seconds>]"
     echo ""
     echo "Start a Tart VM and wait until it is SSH-reachable."
-    echo "macOS VMs run in suspendable mode; Linux VMs do not (tart limitation)."
     echo "If <vm-name> is omitted, presents a list of stopped/suspended local VMs."
     echo ""
     echo "  <vm-name>            Name of the Tart VM to run."
@@ -25,6 +25,7 @@ usage() {
     echo "  --gui                Show the VM window with clipboard sharing."
     echo "  --headless           Run without graphics or clipboard."
     echo "                       (Default: macOS = GUI, Linux = headless.)"
+    echo "  --suspendable        Enable suspendable mode (macOS only; disables audio)."
     echo "  --nested             Enable nested virtualization (exposes /dev/kvm to Linux guests)."
     echo "  --user <username>    SSH username to test connectivity (default: \$USER)."
     echo "  --timeout <seconds>  SSH wait timeout in seconds (default: 120)."
@@ -50,6 +51,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --headless)
             GUI=false
+            shift
+            ;;
+        --suspendable)
+            SUSPENDABLE=true
             shift
             ;;
         --nested)
@@ -116,9 +121,18 @@ if [[ -z "$GUI" ]]; then
     fi
 fi
 
+# --- Warn about suspendable mode ---
+if [[ "$SUSPENDABLE" == true && "$GUEST_OS" != "macos" ]]; then
+    echo "Warning: --suspendable is only supported on macOS VMs. Ignoring."
+    SUSPENDABLE=false
+fi
+if [[ "$SUSPENDABLE" == true ]]; then
+    echo "Warning: Suspendable mode disables audio."
+fi
+
 # --- Build tart run command ---
 TART_ARGS=(run "$VM_NAME")
-if [[ "$GUEST_OS" == "macos" ]]; then
+if [[ "$SUSPENDABLE" == true ]]; then
     TART_ARGS+=(--suspendable)
 fi
 
@@ -128,12 +142,12 @@ fi
 if [[ "$NESTED" == true ]]; then
     TART_ARGS+=(--nested)
 fi
-# Note: --suspendable (macOS only) already disables audio, so --no-audio is not needed
+# Note: --suspendable (macOS only) disables audio, so --no-audio is not needed when suspendable
 
 # --- Start VM ---
 RUN_MODE="$(if [[ "$GUI" == true ]]; then echo "GUI"; else echo "headless"; fi)"
 [[ "$NESTED" == true ]] && RUN_MODE+=", nested"
-[[ "$GUEST_OS" == "macos" ]] && RUN_MODE+=", suspendable"
+[[ "$SUSPENDABLE" == true ]] && RUN_MODE+=", suspendable"
 echo "Starting '$VM_NAME' (${GUEST_OS}, ${RUN_MODE})..."
 tart "${TART_ARGS[@]}" &>/dev/null &
 TART_PID=$!
@@ -210,5 +224,5 @@ echo "  PID      : $TART_PID"
 echo "  Ready in : ${TOTAL_ELAPSED}s"
 echo ""
 echo "Connect:  ssh $SSH_USER@$VM_IP"
-[[ "$GUEST_OS" == "macos" ]] && echo "Suspend:  tart suspend $VM_NAME"
+[[ "$SUSPENDABLE" == true ]] && echo "Suspend:  tart suspend $VM_NAME"
 echo "Stop:     tart stop $VM_NAME"

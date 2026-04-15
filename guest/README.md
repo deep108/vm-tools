@@ -73,6 +73,6 @@ Both macOS and Linux guest VMs get the same core tools via Homebrew:
 | watch | Repeat commands periodically |
 | VS Code | IDE (brew cask on macOS, apt on Linux) |
 
-Brew-over-OS (newer than what ships with macOS/Debian): curl, openssl, git, rsync.
+Brew-over-OS (newer than what ships with macOS/Debian): curl, openssl, git, rsync, zip, unzip.
 
 macOS guests additionally get iTerm2 and MesloLGMDZ Nerd Font via brew casks.

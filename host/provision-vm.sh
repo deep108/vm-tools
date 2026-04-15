@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # --- Defaults ---
-DISK_GB=75
+DISK_GB=""
 BASE_IMAGE=""
 BASE_IMAGE_SET=false
 HEADLESS=false
@@ -21,7 +21,7 @@ usage() {
     echo "  <vm-name>             Required. Name for the new Tart VM."
     echo "  --linux               Create a Linux VM (default: Debian Trixie)."
     echo "  --ubuntu              Use Ubuntu 24.04 instead of Debian (implies --linux)."
-    echo "  --disk <GB>           Disk size in GB (default: 75)."
+    echo "  --disk <GB>           Disk size in GB (default: 80 for macOS, 20 for Linux)."
     echo "  --base <image>        Source Tart image to clone."
     echo "  --headless            Run VM without a UI window."
     echo "  --no-xcode            Skip Xcode installation (for quick test provisions)."
@@ -90,6 +90,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$VM_NAME" ]] && { echo "Error: <vm-name> is required"; usage; }
+
+# Set default disk size based on guest OS (if not explicitly provided)
+if [[ -z "$DISK_GB" ]]; then
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        DISK_GB=20
+    else
+        DISK_GB=80
+    fi
+fi
 
 # Set default base image based on guest OS (if not explicitly provided)
 if [[ "$BASE_IMAGE_SET" == false ]]; then

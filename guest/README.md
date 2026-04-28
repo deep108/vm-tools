@@ -89,7 +89,7 @@ Linux guests are the deploy origin for hosted apps (see `docs/deploy-architectur
 |------|---------|
 | docker | Docker CLI (no daemon — talks to remote daemon via `builder.remote`) |
 | docker-buildx | Buildx plugin for image builds |
-| ruby (via mise) | Runtime for the kamal gem; precompiled binary, pinned to 3.4 in `~/.config/mise/config.toml` |
+| ruby (via mise) | Runtime for the kamal gem; precompiled binary, pinned to 3.4 via `mise use -g ruby@3.4` (coexists with Java for Android) |
 | kamal | Deploy CLI, installed as a user gem at a pinned version by run_onchange_before_05 |
 
 macOS guests skip these — Tart macOS VMs can't run Docker, so deploys originate from Linux guests.

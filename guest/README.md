@@ -62,7 +62,7 @@ Both macOS and Linux guest VMs get the same core tools via Homebrew:
 
 | Tool | Purpose |
 |------|---------|
-| mise | Version manager (node, python, etc.) |
+| mise | Version manager for language runtimes (node, python, ruby, java, etc.) |
 | starship | Shell prompt with VM name badge |
 | tmux | Terminal multiplexer |
 | neovim | Editor (also used by VS Code Neovim extension) |
@@ -71,8 +71,25 @@ Both macOS and Linux guest VMs get the same core tools via Homebrew:
 | tree | Directory visualization |
 | htop | Interactive process viewer |
 | watch | Repeat commands periodically |
+| git-delta | Syntax-highlighted git diff pager (configured via run_onchange_before_06) |
+| tig | Interactive TUI for browsing git history and diffs |
+| difftastic | Language-aware structural diffs (`difft`) |
+| age | File encryption (used for at-rest secrets in deploy workflows) |
 | VS Code | IDE (brew cask on macOS, apt on Linux) |
 
 Brew-over-OS (newer than what ships with macOS/Debian): curl, openssl, git, rsync, zip, unzip.
 
 macOS guests additionally get iTerm2 and MesloLGMDZ Nerd Font via brew casks.
+
+### Linux guests only — Kamal deploy toolchain
+
+Linux guests are the deploy origin for hosted apps (see `docs/deploy-architecture.md`). They additionally get:
+
+| Tool | Purpose |
+|------|---------|
+| docker | Docker CLI (no daemon — talks to remote daemon via `builder.remote`) |
+| docker-buildx | Buildx plugin for image builds |
+| ruby (via mise) | Runtime for the kamal gem; precompiled binary, pinned to 3.4 in `~/.config/mise/config.toml` |
+| kamal | Deploy CLI, installed as a user gem at a pinned version by run_onchange_before_05 |
+
+macOS guests skip these — Tart macOS VMs can't run Docker, so deploys originate from Linux guests.

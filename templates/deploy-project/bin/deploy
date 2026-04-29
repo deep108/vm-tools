@@ -51,6 +51,10 @@ else
     echo "No $SECRETS_AGE_FILE — deploying without secrets."
 fi
 
+# Placeholder for Kamal's required registry password — never used because we
+# don't push (builder.remote keeps the image on the target server).
+export KAMAL_REGISTRY_PASSWORD="${KAMAL_REGISTRY_PASSWORD:-unused-builder-remote}"
+
 echo "Deploying $TAG..."
 kamal deploy
 

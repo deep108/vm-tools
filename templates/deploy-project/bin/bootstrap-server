@@ -128,6 +128,10 @@ if [[ "${confirm,,}" != "y" ]]; then
     exit 0
 fi
 
+# Placeholder for Kamal's required registry password — never used because we
+# don't push (builder.remote keeps the image on the target server).
+export KAMAL_REGISTRY_PASSWORD="${KAMAL_REGISTRY_PASSWORD:-unused-builder-remote}"
+
 kamal setup
 
 echo ""

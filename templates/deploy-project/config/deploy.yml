@@ -4,9 +4,19 @@
 # Service name — appears in container names, image tags, log lines.
 service: __PROJECT__
 
-# Image name — no registry namespace because we don't push (builder.remote
-# builds locally on the target Hetzner box and the image stays there).
+# Image name. No registry namespace because we don't push — `builder.remote`
+# builds the image on the target Hetzner box and the image stays there.
 image: __PROJECT__
+
+# Kamal 2.x requires a registry block even when not pushing — it's used for
+# image naming. With builder.remote the image never leaves the build host,
+# so the values below are placeholders. KAMAL_REGISTRY_PASSWORD is exported
+# with a dummy value by bin/bootstrap-server and bin/deploy.
+registry:
+  server: localhost
+  username: kamal
+  password:
+    - KAMAL_REGISTRY_PASSWORD
 
 servers:
   web:
@@ -18,7 +28,7 @@ ssh:
   user: kamal-__PROJECT__
 
 # Build remotely on the Hetzner box (native amd64, no QEMU cross-compile from
-# ARM dev VMs, no registry needed).
+# ARM dev VMs, no registry push needed).
 builder:
   remote: ssh://kamal-__PROJECT__@__HETZNER_HOST__
   arch: amd64

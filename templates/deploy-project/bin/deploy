@@ -25,12 +25,7 @@ SECRETS_PLAIN_FILE=".kamal/secrets"
 
 # --- Pre-flight checks ------------------------------------------------------
 
-if [[ ! -f "$SECRETS_AGE_FILE" ]]; then
-    echo "Error: $SECRETS_AGE_FILE not found. See .kamal/secrets.example."
-    exit 1
-fi
-
-# Make sure the tag exists locally and is signed
+# Make sure the tag exists locally
 if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
     echo "Error: tag '$TAG' not found locally. Did you 'git fetch --tags'?"
     exit 1
@@ -42,13 +37,19 @@ fi
 echo "Checking out tag $TAG..."
 git checkout "$TAG"
 
-# --- Decrypt secrets, source them, deploy, shred ----------------------------
+# --- Decrypt secrets if present, deploy, shred plaintext on exit ------------
+# Secrets are optional: an app with no env.secret entries in config/deploy.yml
+# doesn't need a secrets file. If $SECRETS_AGE_FILE exists, we decrypt it for
+# Kamal to read at deploy time and shred the plaintext when the script exits.
 
-trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
-
-echo "Decrypting secrets (you'll be prompted for the deploy passphrase)..."
-age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
-chmod 600 "$SECRETS_PLAIN_FILE"
+if [[ -f "$SECRETS_AGE_FILE" ]]; then
+    trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
+    echo "Decrypting secrets (you'll be prompted for the deploy passphrase)..."
+    age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
+    chmod 600 "$SECRETS_PLAIN_FILE"
+else
+    echo "No $SECRETS_AGE_FILE — deploying without secrets."
+fi
 
 echo "Deploying $TAG..."
 kamal deploy

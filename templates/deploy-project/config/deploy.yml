@@ -32,8 +32,9 @@ proxy:
 
 # Secrets — names listed here are pulled from the kamal secrets file at deploy
 # time and injected into the running container as env vars. The actual values
-# live in .kamal/secrets (gitignored, age-decrypted by bin/deploy).
-env:
-  secret:
-    - EXAMPLE_API_TOKEN
-    # add more here as the app grows
+# live in .kamal/secrets (gitignored, age-decrypted by bin/deploy from
+# .kamal/secrets.age). Apps that need no runtime secrets can leave this empty
+# or omit the env block entirely.
+# env:
+#   secret:
+#     - EXAMPLE_API_TOKEN

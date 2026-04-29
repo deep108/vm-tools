@@ -46,16 +46,6 @@ if [[ ! -f "${DEPLOY_KEY}.pub" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$SECRETS_AGE_FILE" ]]; then
-    echo "Error: $SECRETS_AGE_FILE not found."
-    echo "  Create from .kamal/secrets.example, then encrypt:"
-    echo "    cp .kamal/secrets.example .kamal/secrets-plain"
-    echo "    # ... edit secrets-plain with real values ..."
-    echo "    age -p < .kamal/secrets-plain > $SECRETS_AGE_FILE"
-    echo "    shred -u .kamal/secrets-plain"
-    exit 1
-fi
-
 DEPLOY_PUBKEY="$(cat "${DEPLOY_KEY}.pub")"
 
 echo "Bootstrapping __PROJECT__ on $HETZNER_HOST"
@@ -113,14 +103,19 @@ fi
 REMOTE
 
 # --- 4. Run kamal setup -----------------------------------------------------
+# Secrets are optional — if config/deploy.yml has no env.secret entries, you
+# don't need a secrets.age file. Otherwise we decrypt to a transient plaintext
+# that's shredded on exit.
 
-echo "[3/4] Decrypting secrets..."
-
-trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
-age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
-chmod 600 "$SECRETS_PLAIN_FILE"
-
-echo "    ✓ Secrets decrypted to $SECRETS_PLAIN_FILE (will be shredded on exit)"
+if [[ -f "$SECRETS_AGE_FILE" ]]; then
+    echo "[3/4] Decrypting secrets..."
+    trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
+    age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
+    chmod 600 "$SECRETS_PLAIN_FILE"
+    echo "    ✓ Secrets decrypted to $SECRETS_PLAIN_FILE (will be shredded on exit)"
+else
+    echo "[3/4] No $SECRETS_AGE_FILE — proceeding without secrets."
+fi
 echo ""
 echo "[4/4] Running 'kamal setup'..."
 echo "      This installs the Kamal proxy on Hetzner, requests a Let's Encrypt"

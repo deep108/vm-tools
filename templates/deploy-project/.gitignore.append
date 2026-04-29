@@ -1,0 +1,5 @@
+# Append the lines below to your project's .gitignore (or use as the start of one)
+# These are deploy-machinery-specific entries. Don't include the comment headers.
+
+# Kamal — plaintext secrets file (only exists transiently during deploy)
+.kamal/secrets

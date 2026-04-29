@@ -71,6 +71,12 @@ Language runtimes (Ruby, Python, Node, Java, Go, etc.) are managed exclusively v
 
 Tools that ride on a runtime (gems, npm packages, pip packages) install via that runtime's package manager (`gem install --user-install`, `npm install -g`, etc.), not via brew.
 
+## Per-project setup templates
+
+`templates/deploy-project/` contains parameterized templates for the deploy machinery (`bin/bootstrap-server`, `bin/deploy`, `config/deploy.yml`, `.kamal/secrets.example`). When onboarding a new hosted app, instantiate from these rather than copying from an existing project — it avoids drift and means improvements to the template flow to every project on next pull.
+
+The templates are language-agnostic — they handle Kamal wiring, secrets workflow, and Hetzner setup. The Dockerfile and app code itself are project-specific. See `templates/deploy-project/README.md` for the substitution recipe (currently `cp -r` + `sed`; if we onboard a third project this is the moment to wrap it in a `scaffold-deploy-project.sh` host script).
+
 ## Threat model
 
 What this architecture is designed to resist:

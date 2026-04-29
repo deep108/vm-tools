@@ -1,0 +1,39 @@
+# Kamal deploy config for __PROJECT__
+# https://kamal-deploy.org/docs/configuration/
+
+# Service name — appears in container names, image tags, log lines.
+service: __PROJECT__
+
+# Image name — no registry namespace because we don't push (builder.remote
+# builds locally on the target Hetzner box and the image stays there).
+image: __PROJECT__
+
+servers:
+  web:
+    - __HETZNER_HOST__   # e.g. 5.78.183.19
+
+# SSH config — kamal-__PROJECT__ is a per-project user with docker access,
+# created by bin/bootstrap-server. Uses the dev VM's default SSH identity.
+ssh:
+  user: kamal-__PROJECT__
+
+# Build remotely on the Hetzner box (native amd64, no QEMU cross-compile from
+# ARM dev VMs, no registry needed).
+builder:
+  remote: ssh://kamal-__PROJECT__@__HETZNER_HOST__
+  arch: amd64
+
+# Kamal's proxy handles SSL termination + per-host routing. Each project on
+# this Hetzner box gets its own hostname → its own Let's Encrypt cert.
+proxy:
+  ssl: true
+  host: __DOMAIN__   # e.g. __PROJECT__.deepdevelopment.com
+  app_port: 8000
+
+# Secrets — names listed here are pulled from the kamal secrets file at deploy
+# time and injected into the running container as env vars. The actual values
+# live in .kamal/secrets (gitignored, age-decrypted by bin/deploy).
+env:
+  secret:
+    - EXAMPLE_API_TOKEN
+    # add more here as the app grows

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Deploy __PROJECT__ to its Hetzner host.
+#
+# Usage:
+#   bin/deploy <signed-tag>
+#
+# The tag must already be signed (`git tag -s`) and verified before invoking
+# this script. The canonical command is:
+#   git verify-tag $TAG && bin/deploy $TAG
+#
+# Verifying inline here would mean a compromised bin/deploy could skip the
+# check. Typing it as a separate command keeps the gate outside this script.
+
+set -euo pipefail
+
+TAG="${1:-}"
+if [[ -z "$TAG" ]]; then
+    echo "Usage: bin/deploy <signed-tag>"
+    echo "  e.g.: bin/deploy v0.1.4"
+    exit 1
+fi
+
+SECRETS_AGE_FILE=".kamal/secrets.age"
+SECRETS_PLAIN_FILE=".kamal/secrets"
+
+# --- Pre-flight checks ------------------------------------------------------
+
+if [[ ! -f "$SECRETS_AGE_FILE" ]]; then
+    echo "Error: $SECRETS_AGE_FILE not found. See .kamal/secrets.example."
+    exit 1
+fi
+
+# Make sure the tag exists locally and is signed
+if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+    echo "Error: tag '$TAG' not found locally. Did you 'git fetch --tags'?"
+    exit 1
+fi
+
+# --- Check out the signed tag -----------------------------------------------
+# We deploy from the exact tagged state, not from the working tree.
+
+echo "Checking out tag $TAG..."
+git checkout "$TAG"
+
+# --- Decrypt secrets, source them, deploy, shred ----------------------------
+
+trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
+
+echo "Decrypting secrets (you'll be prompted for the deploy passphrase)..."
+age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
+chmod 600 "$SECRETS_PLAIN_FILE"
+
+echo "Deploying $TAG..."
+kamal deploy
+
+echo "✓ __PROJECT__ $TAG deployed"

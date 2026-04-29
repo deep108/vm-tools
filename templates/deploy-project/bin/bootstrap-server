@@ -20,9 +20,12 @@
 set -euo pipefail
 
 # --- Configuration -----------------------------------------------------------
+# These values are populated by the template substitution recipe in
+# templates/deploy-project/README.md. Each one can be overridden at runtime
+# via env var if you need to bootstrap a different host without re-templating.
 
-HETZNER_HOST="${HETZNER_HOST:-__HETZNER_HOST__}"      # e.g., 5.78.183.19
-HETZNER_ADMIN_USER="${HETZNER_ADMIN_USER:-__ADMIN_USER__}"  # e.g., daviddeepdev
+HETZNER_HOST="${HETZNER_HOST:-__HETZNER_HOST__}"
+HETZNER_ADMIN_USER="${HETZNER_ADMIN_USER:-__ADMIN_USER__}"
 DEPLOY_KEY="${DEPLOY_KEY:-${HOME}/.ssh/id_ed25519}"
 KAMAL_USER="kamal-__PROJECT__"
 SECRETS_AGE_FILE=".kamal/secrets.age"

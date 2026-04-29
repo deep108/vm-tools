@@ -10,7 +10,7 @@ image: __PROJECT__
 
 servers:
   web:
-    - __HETZNER_HOST__   # e.g. 5.78.183.19
+    - __HETZNER_HOST__
 
 # SSH config — kamal-__PROJECT__ is a per-project user with docker access,
 # created by bin/bootstrap-server. Uses the dev VM's default SSH identity.
@@ -27,7 +27,7 @@ builder:
 # this Hetzner box gets its own hostname → its own Let's Encrypt cert.
 proxy:
   ssl: true
-  host: __DOMAIN__   # e.g. __PROJECT__.deepdevelopment.com
+  host: __DOMAIN__
   app_port: 8000
 
 # Secrets — names listed here are pulled from the kamal secrets file at deploy

@@ -7,15 +7,15 @@
 #   2. Installs the deploy SSH key into kamal-__PROJECT__'s authorized_keys
 #   3. Removes the admin user (HETZNER_ADMIN_USER) from the docker group, so only
 #      kamal-* users can reach the docker socket
-#   4. Decrypts secrets and runs `kamal setup` (installs Kamal proxy, requests
-#      Let's Encrypt cert, builds + deploys the app for the first time)
+#   4. Decrypts secrets, runs `docker login` on the dev VM (so buildx can forward
+#      creds to the remote buildkit), then runs `kamal setup`
 #
 # Prerequisites:
 #   - config/deploy.yml configured with this project's server, hostname, etc.
-#   - .kamal/secrets.age encrypted with a deploy passphrase
+#   - .kamal/secrets.age encrypted with a deploy passphrase (or .kamal/secrets
+#     present in plaintext for first-time setup; should be encrypted afterward)
 #   - HETZNER_HOST set below or via env var
-#   - SSH access to Hetzner as HETZNER_ADMIN_USER (i.e. ~/.ssh/id_ed25519
-#     already authorized for that user — provision-vm.sh sets this up by default)
+#   - SSH access to Hetzner as HETZNER_ADMIN_USER (provision-vm.sh sets this up)
 
 set -euo pipefail
 
@@ -47,6 +47,16 @@ if [[ ! -f "${DEPLOY_KEY}.pub" ]]; then
 fi
 
 DEPLOY_PUBKEY="$(cat "${DEPLOY_KEY}.pub")"
+REGISTRY_SERVER=""
+REGISTRY_USERNAME=""
+LOGGED_IN_REGISTRY=""
+
+# Cleanup on any exit: shred decrypted secrets, log out of registry
+cleanup() {
+    [[ -f "$SECRETS_PLAIN_FILE" ]] && { shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"; }
+    [[ -n "$LOGGED_IN_REGISTRY" ]] && docker logout "$LOGGED_IN_REGISTRY" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 echo "Bootstrapping __PROJECT__ on $HETZNER_HOST"
 echo "  Admin user (initial SSH):  $HETZNER_ADMIN_USER"
@@ -79,7 +89,6 @@ REMOTE
 
 echo "    ✓ User $KAMAL_USER ready"
 
-# Verify deploy key works (also accepts host key on first connection)
 if ! ssh -o StrictHostKeyChecking=accept-new -i "$DEPLOY_KEY" \
         "${KAMAL_USER}@${HETZNER_HOST}" "true" 2>/dev/null; then
     echo "    ✗ Deploy key auth as $KAMAL_USER failed"
@@ -102,35 +111,58 @@ else
 fi
 REMOTE
 
-# --- 4. Run kamal setup -----------------------------------------------------
-# Secrets are optional — if config/deploy.yml has no env.secret entries, you
-# don't need a secrets.age file. Otherwise we decrypt to a transient plaintext
-# that's shredded on exit.
+# --- 4a. Decrypt secrets and load into env ---------------------------------
 
 if [[ -f "$SECRETS_AGE_FILE" ]]; then
-    echo "[3/4] Decrypting secrets..."
-    trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
+    echo "[3/4] Decrypting secrets from $SECRETS_AGE_FILE..."
     age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
     chmod 600 "$SECRETS_PLAIN_FILE"
-    echo "    ✓ Secrets decrypted to $SECRETS_PLAIN_FILE (will be shredded on exit)"
-else
-    echo "[3/4] No $SECRETS_AGE_FILE — proceeding without secrets."
+elif [[ -f "$SECRETS_PLAIN_FILE" ]]; then
+    echo "[3/4] Using plaintext $SECRETS_PLAIN_FILE (consider encrypting to .age)..."
 fi
+
+if [[ -f "$SECRETS_PLAIN_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SECRETS_PLAIN_FILE"
+    set +a
+fi
+
+# --- 4b. Docker login on dev VM (so buildx can forward creds to buildkit) ---
+# Kamal's own docker login runs on the deploy target, not on the build host.
+# When using builder.remote, buildx on the dev VM forwards credentials from
+# its local ~/.docker/config.json to the remote buildkit container. So we
+# need to ensure the dev VM is logged in before kamal setup runs.
+
+if [[ -n "${KAMAL_REGISTRY_PASSWORD:-}" ]] && [[ -f "config/deploy.yml" ]]; then
+    eval "$(python3 -c "
+import yaml
+c = yaml.safe_load(open('config/deploy.yml'))
+r = c.get('registry') or {}
+print(f\"REGISTRY_SERVER={r.get('server', '')!r}\")
+print(f\"REGISTRY_USERNAME={r.get('username', '')!r}\")
+")"
+    if [[ -n "$REGISTRY_SERVER" && -n "$REGISTRY_USERNAME" ]]; then
+        echo "    Logging in to $REGISTRY_SERVER as $REGISTRY_USERNAME..."
+        echo "$KAMAL_REGISTRY_PASSWORD" | docker login "$REGISTRY_SERVER" -u "$REGISTRY_USERNAME" --password-stdin >/dev/null
+        LOGGED_IN_REGISTRY="$REGISTRY_SERVER"
+        echo "    ✓ Logged in (will be logged out on exit)"
+    fi
+fi
+
+# --- 4c. Run kamal setup ---------------------------------------------------
+
 echo ""
 echo "[4/4] Running 'kamal setup'..."
 echo "      This installs the Kamal proxy on Hetzner, requests a Let's Encrypt"
-echo "      certificate, builds the app image (on the Hetzner box via builder.remote),"
-echo "      and deploys for the first time. May take several minutes."
+echo "      certificate, builds + pushes the image, and deploys for the first"
+echo "      time. May take several minutes."
 echo ""
 read -r -p "Continue? [y/N] " confirm
 if [[ "${confirm,,}" != "y" ]]; then
     echo "Skipped. Run 'kamal setup' manually when ready."
     exit 0
 fi
-
-# Placeholder for Kamal's required registry password — never used because we
-# don't push (builder.remote keeps the image on the target server).
-export KAMAL_REGISTRY_PASSWORD="${KAMAL_REGISTRY_PASSWORD:-unused-builder-remote}"
 
 kamal setup
 

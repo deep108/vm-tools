@@ -22,38 +22,59 @@ fi
 
 SECRETS_AGE_FILE=".kamal/secrets.age"
 SECRETS_PLAIN_FILE=".kamal/secrets"
+LOGGED_IN_REGISTRY=""
+
+# Cleanup: shred decrypted secrets, log out of registry
+cleanup() {
+    [[ -f "$SECRETS_PLAIN_FILE" ]] && { shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"; }
+    [[ -n "$LOGGED_IN_REGISTRY" ]] && docker logout "$LOGGED_IN_REGISTRY" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 # --- Pre-flight checks ------------------------------------------------------
 
-# Make sure the tag exists locally
 if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
     echo "Error: tag '$TAG' not found locally. Did you 'git fetch --tags'?"
     exit 1
 fi
 
 # --- Check out the signed tag -----------------------------------------------
-# We deploy from the exact tagged state, not from the working tree.
+# Deploy from the exact tagged state, not from the working tree.
 
 echo "Checking out tag $TAG..."
 git checkout "$TAG"
 
-# --- Decrypt secrets if present, deploy, shred plaintext on exit ------------
-# Secrets are optional: an app with no env.secret entries in config/deploy.yml
-# doesn't need a secrets file. If $SECRETS_AGE_FILE exists, we decrypt it for
-# Kamal to read at deploy time and shred the plaintext when the script exits.
+# --- Decrypt secrets, source them, log in to registry, deploy --------------
 
 if [[ -f "$SECRETS_AGE_FILE" ]]; then
-    trap 'shred -u "$SECRETS_PLAIN_FILE" 2>/dev/null || rm -f "$SECRETS_PLAIN_FILE"' EXIT
     echo "Decrypting secrets (you'll be prompted for the deploy passphrase)..."
     age -d "$SECRETS_AGE_FILE" > "$SECRETS_PLAIN_FILE"
     chmod 600 "$SECRETS_PLAIN_FILE"
-else
-    echo "No $SECRETS_AGE_FILE — deploying without secrets."
 fi
 
-# Placeholder for Kamal's required registry password — never used because we
-# don't push (builder.remote keeps the image on the target server).
-export KAMAL_REGISTRY_PASSWORD="${KAMAL_REGISTRY_PASSWORD:-unused-builder-remote}"
+if [[ -f "$SECRETS_PLAIN_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SECRETS_PLAIN_FILE"
+    set +a
+fi
+
+# Docker login on dev VM so buildx forwards creds to remote buildkit.
+# (Kamal's own docker login runs on the deploy target only.)
+if [[ -n "${KAMAL_REGISTRY_PASSWORD:-}" ]] && [[ -f "config/deploy.yml" ]]; then
+    eval "$(python3 -c "
+import yaml
+c = yaml.safe_load(open('config/deploy.yml'))
+r = c.get('registry') or {}
+print(f\"REGISTRY_SERVER={r.get('server', '')!r}\")
+print(f\"REGISTRY_USERNAME={r.get('username', '')!r}\")
+")"
+    if [[ -n "${REGISTRY_SERVER:-}" && -n "${REGISTRY_USERNAME:-}" ]]; then
+        echo "Logging in to $REGISTRY_SERVER..."
+        echo "$KAMAL_REGISTRY_PASSWORD" | docker login "$REGISTRY_SERVER" -u "$REGISTRY_USERNAME" --password-stdin >/dev/null
+        LOGGED_IN_REGISTRY="$REGISTRY_SERVER"
+    fi
+fi
 
 echo "Deploying $TAG..."
 kamal deploy

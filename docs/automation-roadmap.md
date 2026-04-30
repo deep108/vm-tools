@@ -4,6 +4,10 @@ Steps that were manual during reader-buddy's first deploy (April 2026). Captured
 
 For context on the deploy architecture itself, see [`deploy-architecture.md`](deploy-architecture.md).
 
+## One-off manual TODOs (existing infra)
+
+- [ ] **reader-buddy GAR cleanup policies** — set up via GCP console at https://console.cloud.google.com/artifacts/docker/reader-buddy-494902/us-west1/reader-buddy: keep-most-recent 10 tagged, delete tagged older than 90d, delete untagged older than 7d. We declined to set these at registry creation. Without them, GAR storage will accumulate over time.
+
 ## Inventory of manual steps
 
 | Step | Frequency | Currently |
@@ -16,6 +20,7 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 | Service account + repo-level IAM + JSON key | Per-project | Web console |
 | Encrypt `.kamal/secrets.age` with age | Per-project | Manual `age -p` |
 | Template substitution into project repo (cp + sed) | Per-project | Manual recipe in template README |
+| Configure GAR cleanup policies (keep-N + age-based) | Per-project | Web console, easy to forget |
 | Tag + verify-tag + deploy | Per-deploy | Already minimal |
 
 ## Tier 1 — high ROI, quick wins
@@ -108,6 +113,19 @@ gcloud artifacts repositories add-iam-policy-binding <repo> \
 
 gcloud iam service-accounts keys create /tmp/key.json \
     --iam-account=kamal-deploy-<project>@<gcp-project>.iam.gserviceaccount.com
+
+# Set cleanup policies so the registry doesn't accumulate forever:
+#   - Keep most-recent 10 tagged versions (rollback room)
+#   - Delete tagged versions older than 90 days
+#   - Delete untagged versions (build orphans) older than 7 days
+# These can be specified as a JSON file passed via `--policies` to
+# `gcloud artifacts repositories set-cleanup-policies`. Example structure:
+#   [{"name": "keep-recent-10", "action": {"type": "Keep"},
+#     "mostRecentVersions": {"keepCount": 10}},
+#    {"name": "delete-old-tagged", "action": {"type": "Delete"},
+#     "condition": {"tagState": "TAGGED", "olderThan": "7776000s"}},
+#    {"name": "delete-untagged", "action": {"type": "Delete"},
+#     "condition": {"tagState": "UNTAGGED", "olderThan": "604800s"}}]
 
 # Base64 + pipe to dev VM, encrypt with age, shred local
 B64=$(base64 -i /tmp/key.json | tr -d '\n')

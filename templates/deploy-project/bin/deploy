@@ -71,6 +71,11 @@ if [[ -n "${KAMAL_REGISTRY_PASSWORD:-}" ]] && [[ -f "config/deploy.yml" ]]; then
     fi
 fi
 
+# APP_VERSION gets baked into the image via builder.args (see config/deploy.yml)
+# so the running container can report what it was deployed from. We use the
+# tag the user passed — bin/deploy is only ever invoked with a signed tag.
+export APP_VERSION="$TAG"
+
 echo "Deploying $TAG..."
 kamal deploy
 

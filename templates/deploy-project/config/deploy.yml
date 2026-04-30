@@ -37,9 +37,19 @@ ssh:
 # Build natively on the Hetzner box (amd64). Kamal's buildx forwards the
 # registry credentials from the dev VM's docker config (set by bin/deploy's
 # docker login step) to the remote buildkit container.
+#
+# APP_VERSION is plumbed through as a Docker build arg so the running container
+# can display the tag it was deployed from. bin/deploy sets APP_VERSION=<tag>
+# before invoking kamal; bin/bootstrap-server uses `git describe`. Falls back
+# to "dev" for local builds outside this flow. Your Dockerfile should declare
+#   ARG APP_VERSION=dev
+#   ENV APP_VERSION=$APP_VERSION
+# so it's accessible at runtime via os.environ['APP_VERSION'] (or equivalent).
 builder:
   remote: ssh://kamal-__PROJECT__@__HETZNER_HOST__
   arch: amd64
+  args:
+    APP_VERSION: <%= ENV['APP_VERSION'] || 'dev' %>
 
 # Kamal's proxy handles SSL termination + per-host routing. Each project on
 # this Hetzner box gets its own hostname → its own Let's Encrypt cert.

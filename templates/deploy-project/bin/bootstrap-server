@@ -159,6 +159,13 @@ if [[ "${confirm,,}" != "y" ]]; then
     exit 0
 fi
 
+# APP_VERSION is baked into the image via builder.args (see config/deploy.yml)
+# so the running container can report what it was deployed from. For
+# bootstrap (no explicit tag), use git describe — it picks the most recent
+# tag, or falls back to a short SHA, or "initial" if neither is available.
+export APP_VERSION="$(git describe --tags --always --dirty 2>/dev/null || echo initial)"
+echo "    Building with APP_VERSION=$APP_VERSION"
+
 kamal setup
 
 echo ""

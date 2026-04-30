@@ -528,6 +528,20 @@ fi
 
 # --- [13/22] Run bootstrap ---
 echo "[13/22] Running bootstrap..."
+
+# Propagate git identity from host before bootstrap so user.name / user.email
+# don't need to be hardcoded in dotfiles. Idempotent: if host has no global
+# git identity (rare), guest user can configure it later.
+HOST_GIT_NAME=$(git config --global user.name 2>/dev/null || true)
+HOST_GIT_EMAIL=$(git config --global user.email 2>/dev/null || true)
+if [[ -n "$HOST_GIT_NAME" && -n "$HOST_GIT_EMAIL" ]]; then
+    echo "        Propagating git identity from host: $HOST_GIT_NAME <$HOST_GIT_EMAIL>"
+    vm_exec_user "git config --global user.name '$HOST_GIT_NAME'"
+    vm_exec_user "git config --global user.email '$HOST_GIT_EMAIL'"
+else
+    echo "        Host has no global git identity; skipping (configure later via 'git config --global')"
+fi
+
 if [[ "$GUEST_OS" == "linux" ]]; then
     vm_exec_user "bash ~/dev/vm-tools/scripts/bootstrap-linux.sh"
 else

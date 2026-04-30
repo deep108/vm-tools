@@ -10,24 +10,33 @@ Single-VM model: deploys originate on the dev VM, no separate deploy VM.
 
 **Where things live**
 - **Dev VM**: source code, signing key (passphrase-protected, no agent caching), age-encrypted secrets file, `bin/deploy` runs locally
-- **Host (macOS)**: bare git repo per project; Tart VM lifecycle (unchanged)
+- **Host (macOS)**: optional bare git repo per project (via `bridge-vm-git.sh`); Tart VM lifecycle
 - **Hetzner box**: Docker + Kamal proxy + app containers; one box hosts multiple apps, routed by hostname
-- **No long-lived deploy VM**
+- **GCP Artifact Registry**: container image storage, one repo per project, narrowly-scoped service account credentials live in encrypted secrets on dev VM
+- **No long-lived deploy VM**, no GitHub credentials on the dev VM
 
 **Deploy flow**
-1. Develop on dev VM, push checkpoint commits to host bare repo as you work — none ship
+1. Develop on dev VM, push checkpoint commits as you work — none ship
 2. When ready to release: review cumulative diff, then `git tag -s vX.Y.Z`
-3. Push tag, then deploy with explicit verification (don't trust `bin/deploy` to verify itself):
+3. Deploy with explicit verification (don't trust `bin/deploy` to verify itself):
    ```bash
    git verify-tag vX.Y.Z && bin/deploy vX.Y.Z
    ```
-4. `bin/deploy` does `git checkout $TAG`, decrypts the secrets file with age, sources it, runs `kamal deploy`
+4. `bin/deploy`:
+   - Checks the tag exists locally and checks it out
+   - Decrypts `.kamal/secrets.age` → `.kamal/secrets` (transient, shredded on exit)
+   - Sources the plaintext to load `KAMAL_REGISTRY_PASSWORD` and any app secrets
+   - Runs `docker login` on the dev VM (so buildx can forward credentials to the remote buildkit container)
+   - Runs `kamal deploy` — Kamal builds remotely on Hetzner, pushes to GAR, pulls back, runs the container
 
 **Security gates**
 - Signed git tags are the only deployable artifact; verification is a typed step at the prompt
 - Signing key passphrase entered per `git tag -s` (no agent caching)
 - `allowed_signers` file lives at `~/.config/git/allowed_signers` on the dev VM, not in the repo
-- Secrets stored in `~/.config/<project>/secrets.env.age`, decrypted per deploy with a deploy-specific passphrase
+- Secrets at rest: age-encrypted in `.kamal/secrets.age` (committed to repo); plaintext only exists transiently during deploy
+- Registry credentials: GCP service-account JSON key, IAM-scoped to a single Artifact Registry repository
+- Dev VM logged out of registry on deploy exit (via `trap`), so credentials don't persist in `~/.docker/config.json` between deploys
+- No GitHub credentials on the dev VM at all — neither for code push (use host bare repo or manual push) nor for image registry
 - No backup SSH key on Hetzner; cloud-console password reset is the break-glass
 
 **Per-project Hetzner setup**
@@ -70,6 +79,29 @@ Language runtimes (Ruby, Python, Node, Java, Go, etc.) are managed exclusively v
 - Brew's "one global runtime, upgraded out from under you" model conflicts with project-specific version requirements
 
 Tools that ride on a runtime (gems, npm packages, pip packages) install via that runtime's package manager (`gem install --user-install`, `npm install -g`, etc.), not via brew.
+
+## Container registry
+
+**Default: Google Artifact Registry (GAR) with a narrowly-scoped service account.**
+
+Setup:
+- One Artifact Registry repository per project, in a region close to Hetzner (us-west1 for Hillsboro, OR)
+- One GCP service account per project
+- IAM binding: `roles/artifactregistry.writer` granted at the **repository** level (not project level — keeps blast radius narrow)
+- JSON key generated, base64-encoded, stored in `.kamal/secrets.age`
+- Deploy.yml uses `_json_key_base64` as the username; KAMAL_REGISTRY_PASSWORD env var carries the base64 contents
+
+If the service account key is compromised, the attacker can push/pull images to **only** that one repo — they can't read other GCP resources, can't access GitHub, can't touch Hetzner directly. The signed-tag gate is still the second line of defense against shipped malicious images.
+
+**Alternatives considered**:
+
+- **GitHub Container Registry (ghcr.io)**: works, but the only available scoping mechanism is a classic PAT with `write:packages`, which grants push to *all* package namespaces under your account. Not narrow enough; rejected after evaluation.
+- **Self-hosted registry on Hetzner with TLS via kamal-proxy**: viable but requires DNS subdomain + htpasswd setup + cert management. Roughly 30-min setup vs ~10 min for GAR. Defer to this if you ever want zero external dependencies (trigger: project that must work without any third-party services).
+- **Kamal's local-registry feature** (registry on dev VM, SSH port forward to Hetzner): Kamal's intended pattern, but requires a Docker daemon on the dev VM and uses QEMU emulation for amd64 builds on ARM. Slower builds. Defer to this if GCP becomes unworkable for some reason.
+
+**Important Kamal quirk to know**:
+
+Kamal does NOT run `docker login` on the build machine. It only runs `docker login` on the deploy target (after push, before pull). For `builder.remote` setups, the buildx CLI on the dev VM forwards credentials from the local docker config to the remote buildkit container. So **the dev VM must be logged in to the registry before `kamal setup`/`kamal deploy` runs**, otherwise the push step gets "Unauthenticated request". `bin/bootstrap-server` and `bin/deploy` handle this — they do the dev-VM-side `docker login` before invoking kamal.
 
 ## Per-project setup templates
 
@@ -144,12 +176,28 @@ The original Phase B plan defined three scripts: `provision-vm.sh --deploy`, `re
 - External dependency at deploy time (1P API must be reachable)
 - Service account token rotation chore (max 1-year expiry)
 
-**Current substitute**: plain `age`-encrypted env file per project at `~/.config/<project>/secrets.env.age`.
+**Current substitute**: `age`-encrypted env file at `.kamal/secrets.age` (committed) decrypted per deploy with a deploy-specific passphrase.
 
 **Triggers**
 - Multiple projects sharing the same secrets (e.g., the same Anthropic API key consumed by 3+ apps)
 - Adding a collaborator who needs deploy capability
 - Frequent rotation requirements (every few weeks rather than yearly/never)
+
+### Self-hosted registry on Hetzner with TLS
+
+**What it would enable**
+- Zero external service dependencies for deploys (only Hetzner)
+- Registry stays on the same infrastructure as the deployed apps
+
+**What it costs**
+- DNS subdomain (`registry.deepdevelopment.com`) + Let's Encrypt cert
+- Kamal-proxy route to a registry container with htpasswd auth
+- ~30-min initial setup vs ~10 min for GAR
+
+**Triggers**
+- A project that must operate without any third-party cloud dependency
+- GCP becomes unworkable (cost, policy, etc.)
+- Building infrastructure for someone else who explicitly wants self-host-only
 
 ### Hardware-token signing key
 

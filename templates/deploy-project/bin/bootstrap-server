@@ -135,13 +135,8 @@ fi
 # need to ensure the dev VM is logged in before kamal setup runs.
 
 if [[ -n "${KAMAL_REGISTRY_PASSWORD:-}" ]] && [[ -f "config/deploy.yml" ]]; then
-    eval "$(python3 -c "
-import yaml
-c = yaml.safe_load(open('config/deploy.yml'))
-r = c.get('registry') or {}
-print(f\"REGISTRY_SERVER={r.get('server', '')!r}\")
-print(f\"REGISTRY_USERNAME={r.get('username', '')!r}\")
-")"
+    REGISTRY_SERVER=$(awk '/^registry:/{in_r=1;next} /^[a-zA-Z]/{in_r=0} in_r && /^  server:/{print $2; exit}' config/deploy.yml)
+    REGISTRY_USERNAME=$(awk '/^registry:/{in_r=1;next} /^[a-zA-Z]/{in_r=0} in_r && /^  username:/{print $2; exit}' config/deploy.yml)
     if [[ -n "$REGISTRY_SERVER" && -n "$REGISTRY_USERNAME" ]]; then
         echo "    Logging in to $REGISTRY_SERVER as $REGISTRY_USERNAME..."
         echo "$KAMAL_REGISTRY_PASSWORD" | docker login "$REGISTRY_SERVER" -u "$REGISTRY_USERNAME" --password-stdin >/dev/null

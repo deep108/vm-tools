@@ -4,17 +4,24 @@
 # Service name — appears in container names, image tags, log lines.
 service: __PROJECT__
 
-# Image name. No registry namespace because we don't push — `builder.remote`
-# builds the image on the target Hetzner box and the image stays there.
-image: __PROJECT__
+# Image path under the registry. Kamal prepends `registry.server` automatically,
+# so the full image becomes:
+#   <registry.server>/<image>:<sha>
+# For Google Artifact Registry, the convention is <project-id>/<repo>/<image>.
+image: __GCP_PROJECT__/__GAR_REPO__/__PROJECT__
 
-# Kamal 2.x requires a registry block even when not pushing — it's used for
-# image naming. With builder.remote the image never leaves the build host,
-# so the values below are placeholders. KAMAL_REGISTRY_PASSWORD is exported
-# with a dummy value by bin/bootstrap-server and bin/deploy.
+# Registry: Google Artifact Registry, narrowly scoped service account.
+# - server: regional GAR endpoint
+# - username: literal `_json_key_base64` (Docker's standard auth pattern for
+#   GCP service-account JSON keys, base64-encoded for shell-safety)
+# - password: secret reference; the base64-encoded service-account JSON lives
+#   in .kamal/secrets (gitignored)
+#
+# An alternative pattern (self-hosted registry on Hetzner with TLS) is
+# documented in vm-tools/docs/deploy-architecture.md. Default = GAR.
 registry:
-  server: localhost
-  username: kamal
+  server: __GAR_REGION__-docker.pkg.dev
+  username: _json_key_base64
   password:
     - KAMAL_REGISTRY_PASSWORD
 
@@ -27,8 +34,9 @@ servers:
 ssh:
   user: kamal-__PROJECT__
 
-# Build remotely on the Hetzner box (native amd64, no QEMU cross-compile from
-# ARM dev VMs, no registry push needed).
+# Build natively on the Hetzner box (amd64). Kamal's buildx forwards the
+# registry credentials from the dev VM's docker config (set by bin/deploy's
+# docker login step) to the remote buildkit container.
 builder:
   remote: ssh://kamal-__PROJECT__@__HETZNER_HOST__
   arch: amd64
@@ -40,11 +48,8 @@ proxy:
   host: __DOMAIN__
   app_port: 8000
 
-# Secrets — names listed here are pulled from the kamal secrets file at deploy
-# time and injected into the running container as env vars. The actual values
-# live in .kamal/secrets (gitignored, age-decrypted by bin/deploy from
-# .kamal/secrets.age). Apps that need no runtime secrets can leave this empty
-# or omit the env block entirely.
+# Runtime secrets injected into the deployed container. Add app secrets here
+# (e.g., READWISE_API_TOKEN, ANTHROPIC_API_KEY) and put values in .kamal/secrets.
 # env:
 #   secret:
-#     - EXAMPLE_API_TOKEN
+#     - READWISE_API_TOKEN

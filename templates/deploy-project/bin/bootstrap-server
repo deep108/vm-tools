@@ -19,6 +19,17 @@
 
 set -euo pipefail
 
+# Print a helpful message on any failure. The script is idempotent — most
+# steps re-run cleanly. Decrypted secrets are still shredded by the EXIT trap.
+err_trap() {
+    local exit_code=$?
+    echo ""
+    echo "✗ bootstrap-server failed at line $1 (exit $exit_code)."
+    echo "  This script is idempotent: fix the underlying issue and re-run."
+    echo "  Already-applied state (kamal user, group membership, etc.) stays as-is."
+}
+trap 'err_trap $LINENO' ERR
+
 # --- Configuration -----------------------------------------------------------
 # These values are populated by the template substitution recipe in
 # templates/deploy-project/README.md. Each one can be overridden at runtime
@@ -58,10 +69,75 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Bootstrapping __PROJECT__ on $HETZNER_HOST"
-echo "  Admin user (initial SSH):  $HETZNER_ADMIN_USER"
-echo "  Per-project kamal user:    $KAMAL_USER"
-echo "  Deploy SSH key:            $DEPLOY_KEY"
+# --- Hetzner-side pre-flight (read-only checks before any state changes) ----
+
+echo "Pre-flight checks against $HETZNER_HOST..."
+
+# 1. Can we SSH as the admin user at all?
+if ! ssh -o BatchMode=yes -o ConnectTimeout=10 \
+        "${HETZNER_ADMIN_USER}@${HETZNER_HOST}" true 2>/dev/null; then
+    echo "Error: cannot SSH to ${HETZNER_ADMIN_USER}@${HETZNER_HOST}."
+    echo "  Verify your SSH key is installed in"
+    echo "  /home/${HETZNER_ADMIN_USER}/.ssh/authorized_keys on the Hetzner box."
+    exit 1
+fi
+echo "    ✓ SSH as $HETZNER_ADMIN_USER OK"
+
+# 2. If the per-project kamal user already exists, ensure its installed deploy
+# key matches the one this machine has. Mismatch implies another machine
+# bootstrapped this project — abort to avoid clobbering its access.
+existing_pubkey=$(ssh "${HETZNER_ADMIN_USER}@${HETZNER_HOST}" \
+    "sudo cat /home/${KAMAL_USER}/.ssh/authorized_keys 2>/dev/null" || true)
+if [[ -n "$existing_pubkey" ]]; then
+    # Strip trailing whitespace/comments mismatch by comparing key body only
+    if [[ "${existing_pubkey%[[:space:]]*}" == "${DEPLOY_PUBKEY%[[:space:]]*}" ]]; then
+        echo "    ✓ $KAMAL_USER already provisioned with this deploy key (idempotent re-run)"
+    else
+        echo "    ✗ $KAMAL_USER exists on Hetzner with a DIFFERENT SSH key:"
+        echo "         existing (first 50 chars): ${existing_pubkey:0:50}..."
+        echo "         our key  (first 50 chars): ${DEPLOY_PUBKEY:0:50}..."
+        echo ""
+        echo "      Likely another machine bootstrapped this project. Aborting."
+        echo "      To proceed, either: (a) use the matching deploy key on this"
+        echo "      machine, or (b) manually verify and replace the key in"
+        echo "      /home/${KAMAL_USER}/.ssh/authorized_keys on Hetzner."
+        exit 1
+    fi
+fi
+
+# 3. Best-effort hostname-collision warning. kamal-proxy's label format isn't
+# stable across versions, so this is a coarse grep rather than parsing internals.
+# kamal will refuse to deploy on a real conflict — this is just an early heads-up.
+DEPLOY_DOMAIN=$(awk '/^proxy:/{in_p=1;next} /^[a-zA-Z]/{in_p=0} in_p && /^  host:/{print $2; exit}' \
+    config/deploy.yml 2>/dev/null || true)
+if [[ -n "$DEPLOY_DOMAIN" ]]; then
+    existing_hit=$(ssh "${HETZNER_ADMIN_USER}@${HETZNER_HOST}" \
+        "docker ps --format '{{.Names}}\t{{.Image}}\t{{.Labels}}' 2>/dev/null \
+            | grep -F '$DEPLOY_DOMAIN' | grep -v '$KAMAL_USER' | head -3" || true)
+    if [[ -n "$existing_hit" ]]; then
+        echo "    ! Warning: $DEPLOY_DOMAIN appears in another container's labels:"
+        while IFS= read -r line; do echo "         $line"; done <<< "$existing_hit"
+        echo "      kamal will refuse to deploy on a real conflict; if not, false"
+        echo "      positive (shared label string). Continuing."
+    fi
+fi
+echo ""
+
+# --- Planned changes summary + confirmation --------------------------------
+
+echo "Planned changes for __PROJECT__ on $HETZNER_HOST:"
+echo "  - useradd $KAMAL_USER (in docker group)"
+echo "  - install ${DEPLOY_KEY}.pub into ${KAMAL_USER}'s authorized_keys"
+echo "  - remove $HETZNER_ADMIN_USER from docker group (if currently a member)"
+echo "  - decrypt $SECRETS_AGE_FILE locally (shredded on exit)"
+echo "  - docker login to the registry from this machine (logged out on exit)"
+echo "  - kamal setup (deploys initial container, configures kamal-proxy)"
+echo ""
+read -r -p "Proceed? [y/N] " bootstrap_confirm
+if [[ ! "${bootstrap_confirm,,}" =~ ^y ]]; then
+    echo "Aborted."
+    exit 0
+fi
 echo ""
 
 # --- 1+2. Create kamal user, install deploy key (idempotent) ----------------
@@ -148,16 +224,8 @@ fi
 # --- 4c. Run kamal setup ---------------------------------------------------
 
 echo ""
-echo "[4/4] Running 'kamal setup'..."
-echo "      This installs the Kamal proxy on Hetzner, requests a Let's Encrypt"
-echo "      certificate, builds + pushes the image, and deploys for the first"
-echo "      time. May take several minutes."
-echo ""
-read -r -p "Continue? [y/N] " confirm
-if [[ "${confirm,,}" != "y" ]]; then
-    echo "Skipped. Run 'kamal setup' manually when ready."
-    exit 0
-fi
+echo "[4/4] Running 'kamal setup' (installs proxy, requests cert, builds, deploys)..."
+echo "      May take several minutes."
 
 # APP_VERSION is baked into the image via builder.args (see config/deploy.yml)
 # so the running container can report what it was deployed from. For

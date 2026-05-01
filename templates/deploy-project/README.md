@@ -26,23 +26,27 @@ What this template does NOT include:
 
 ## Instantiate for a new project
 
-Run on the dev VM where the project repo lives. Replace `<project>` with your project name (lowercase, hyphenated — used in script paths, kamal user names, container names).
+From the **host** (not the VM):
 
 ```bash
-PROJECT="<project>"
-HETZNER_HOST="<ip-of-target-server>"      # e.g. 5.78.183.19
-DOMAIN="${PROJECT}.deepdevelopment.com"   # whatever hostname you'll point at this app
-ADMIN_USER="$USER"                         # whoever provision-vm.sh created on Hetzner
-GCP_PROJECT="<gcp-project-id>"             # e.g. reader-buddy-494902
-GAR_REGION="us-west1"                      # whatever GAR region you used
-GAR_REPO="<artifact-registry-repo-name>"   # e.g. reader-buddy
+./host/scaffold-deploy-project.sh <project>
+```
 
-cd ~/dev/<project>
+It picks the Tart VM whose name matches `<project>` (or prompts), prompts
+interactively for the rest of the config (Hetzner host IP, domain, GCP
+project, GAR region/repo — with sensible defaults), then over SSH does the
+equivalent of the recipe below. Pass `--vm <name>` to override the VM
+selection, or `--force` to overwrite a previously-scaffolded project.
+
+For reference (and audit), what the script does on the VM:
+
+```bash
+cd ~/dev/<project>   # creates the dir if missing
 cp -r ~/dev/vm-tools/templates/deploy-project/{bin,config,.kamal} .
 cat ~/dev/vm-tools/templates/deploy-project/.gitignore.append >> .gitignore
 chmod +x bin/bootstrap-server bin/deploy
 
-# Substitute placeholders
+# Substitute placeholders in the templated files
 files=(bin/bootstrap-server bin/deploy config/deploy.yml)
 sed -i "s|__PROJECT__|${PROJECT}|g" "${files[@]}"
 sed -i "s|__HETZNER_HOST__|${HETZNER_HOST}|g" "${files[@]}"
@@ -51,7 +55,12 @@ sed -i "s|__ADMIN_USER__|${ADMIN_USER}|g" "${files[@]}"
 sed -i "s|__GCP_PROJECT__|${GCP_PROJECT}|g" "${files[@]}"
 sed -i "s|__GAR_REGION__|${GAR_REGION}|g" "${files[@]}"
 sed -i "s|__GAR_REPO__|${GAR_REPO}|g" "${files[@]}"
+
+git init   # only if not already a repo
 ```
+
+Run it directly via the recipe instead of the script if you want to scaffold
+on a VM that isn't picked up by the host-side automation.
 
 ## Set up secrets (once)
 

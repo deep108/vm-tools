@@ -19,7 +19,7 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 | GCP project + Artifact Registry repo creation | Per-project (or per-server-tier) | Web console |
 | Service account + repo-level IAM + JSON key | Per-project | Web console |
 | Encrypt `.kamal/secrets.age` with age | Per-project | Manual `age -p` |
-| Template substitution into project repo (cp + sed) | Per-project | Manual recipe in template README |
+| Template substitution into project repo (cp + sed) | Per-project | **Automated** (`scaffold-deploy-project.sh`) |
 | Configure GAR cleanup policies (keep-N + age-based) | Per-project | Manual `gcloud artifacts repositories set-cleanup-policies` (template policy in 2.1) |
 | Tag + verify-tag + deploy | Per-deploy | Already minimal |
 
@@ -39,27 +39,11 @@ Flags: `--no-signing` to skip; `--non-interactive` implies `--no-signing` (no wa
 
 Note: the signing key is generated *fresh* per VM and never propagated. Each new VM gets its own. The pubkey gets added to `allowed_signers` on that VM. If you sign on multiple VMs, each VM's pubkey needs to be in each `allowed_signers` (or added to a shared one in the dotfiles). Consider this when scaling to multiple dev VMs.
 
-### 1.3 `vm-tools/host/scaffold-deploy-project.sh <project>`
+### 1.3 `vm-tools/host/scaffold-deploy-project.sh <project>` — **Done**
 
-Replaces the manual cp + sed substitution recipe currently in the template README. Host-side script that runs the substitution remotely on the dev VM.
+Host-side. Picks the Tart VM whose name matches `<project>` (overridable via `--vm`), offers to start it via `run-vm.sh` if stopped, then SSHes in to copy templates + sed-substitute placeholders + `git init` if needed. Refuses to clobber a prior scaffold without `--force`. Warns if the project dir already has uncommitted changes.
 
-**Inputs** (interactive prompts, with sensible defaults):
-- Project name
-- Hetzner host IP
-- Domain (default: `<project>.deepdevelopment.com`)
-- GCP project ID
-- GAR region (default: `us-west1`)
-- GAR repo name (default: same as project)
-
-**What it does**:
-1. SSH to dev VM
-2. `mkdir ~/dev/<project>`
-3. Copy templates from `~/dev/vm-tools/templates/deploy-project/`
-4. Run sed substitutions
-5. `git init` if needed
-6. Print the next steps (set up GAR, encrypt secrets, etc.)
-
-~50 lines of bash. Idempotent.
+Bundled with this: `templates/deploy-project/bin/bootstrap-server` got a hardening pass — pre-flight checks against Hetzner (SSH connectivity, existing-kamal-user-key mismatch, best-effort hostname-collision warning), planned-changes summary + confirmation before any state change, and an ERR trap with a recovery message on failure.
 
 ## Tier 2 — high value, more work
 
@@ -137,7 +121,7 @@ When you come back to this:
 
 1. ~~Tier 1.1~~ — Done.
 2. ~~Tier 1.2~~ — Done.
-3. Tier 1.3 (scaffolding script — saves the long sed dance)
+3. ~~Tier 1.3~~ — Done.
 4. *Then evaluate*: does Tier 2.1 (GAR automation) still feel painful enough to do? `gcloud` is now installed on the host (used for the GAR cleanup-policy fix), so that lift is smaller.
 
 Each Tier 1 item is ~30-60 minutes of work plus testing. Tier 2.1 is ~1-2 hours including gcloud setup.

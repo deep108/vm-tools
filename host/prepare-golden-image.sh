@@ -6,9 +6,10 @@ usage() {
     echo
     echo "Prepare a running VM to be used as a golden base image."
     echo
-    echo "Cleans up instance-specific state (shell history, SSH host keys,"
-    echo "caches, logs) then stops the VM. After this, the VM is ready to"
-    echo "be cloned with: provision-vm.sh <new-vm> [--linux] --base <vm-name>"
+    echo "Cleans instance-specific state (shell history, SSH keys, caches,"
+    echo "logs, DHCP leases), flips the vm-tools metadata to golden_image=true,"
+    echo "then stops the VM. After this, the VM is ready to be cloned with:"
+    echo "  provision-vm.sh <new-vm> [--linux] --base <vm-name>"
     echo
     echo "  --linux    The VM is running Linux (default: macOS)."
     echo "             Uses SSH instead of tart exec (no guest agent on Linux)."
@@ -85,8 +86,8 @@ echo "  Guest OS : $GUEST_OS"
 [[ -n "$VM_USER" ]] && echo "  User     : $VM_USER"
 echo ""
 
-# --- [1/7] Shell history ---
-echo "[1/7] Clearing shell history..."
+# --- [1/9] Shell history ---
+echo "[1/9] Clearing shell history..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     vm_ssh "rm -f ~/.bash_history ~/.zsh_history"
     vm_ssh "sudo bash -c 'rm -f /home/admin/.bash_history /home/admin/.zsh_history'"
@@ -96,8 +97,8 @@ else
 fi
 echo "      Done."
 
-# --- [2/7] SSH host keys (will be regenerated on clone by provision-vm.sh) ---
-echo "[2/7] Removing SSH host keys..."
+# --- [2/9] SSH host keys (will be regenerated on clone by provision-vm.sh) ---
+echo "[2/9] Removing SSH host keys..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     vm_ssh "sudo bash -c 'rm -f /etc/ssh/ssh_host_*'"
 else
@@ -105,8 +106,8 @@ else
 fi
 echo "      Done."
 
-# --- [3/7] SSH known_hosts ---
-echo "[3/7] Clearing SSH known_hosts..."
+# --- [3/9] SSH known_hosts ---
+echo "[3/9] Clearing SSH known_hosts..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     vm_ssh "rm -f ~/.ssh/known_hosts"
     vm_ssh "sudo bash -c 'rm -f /home/admin/.ssh/known_hosts'"
@@ -116,8 +117,20 @@ else
 fi
 echo "      Done."
 
-# --- [4/7] Package manager / Homebrew cache ---
-echo "[4/7] Cleaning caches..."
+# --- [4/9] User SSH keys (outbound id_*, mac-host-git*, allowed_signers) ---
+# Removing these forces provision-vm.sh to regenerate per-clone, so multiple
+# VMs derived from one golden image don't share keys. authorized_keys is left
+# in place so the host can still SSH in after cloning.
+echo "[4/9] Removing user SSH keys (id_*, mac-host-git*, allowed_signers)..."
+if [[ "$GUEST_OS" == "linux" ]]; then
+    vm_ssh "rm -f ~/.ssh/id_* ~/.ssh/mac-host-git* ~/.config/git/allowed_signers 2>/dev/null" || true
+else
+    tart exec "$VM_NAME" bash -c "rm -f ~/.ssh/id_* ~/.ssh/mac-host-git* ~/.config/git/allowed_signers 2>/dev/null" || true
+fi
+echo "      Done."
+
+# --- [5/9] Package manager / Homebrew cache ---
+echo "[5/9] Cleaning caches..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     vm_ssh "sudo bash -c 'apt-get clean -qq && apt-get autoremove -y -qq'" 2>/dev/null || true
     # Homebrew may have been installed during bootstrap
@@ -127,8 +140,8 @@ else
 fi
 echo "      Done."
 
-# --- [5/7] System logs ---
-echo "[5/7] Clearing system logs..."
+# --- [6/9] System logs ---
+echo "[6/9] Clearing system logs..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     # Rotate and vacuum systemd journal; remove common log files.
     vm_ssh "sudo bash -c 'journalctl --rotate 2>/dev/null; journalctl --vacuum-time=1s 2>/dev/null'" || true
@@ -141,8 +154,8 @@ else
 fi
 echo "      Done."
 
-# --- [6/7] DHCP leases ---
-echo "[6/7] Clearing DHCP leases..."
+# --- [7/9] DHCP leases ---
+echo "[7/9] Clearing DHCP leases..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     # Cover both dhclient and NetworkManager lease locations (Debian Trixie uses NM).
     vm_ssh "sudo bash -c 'rm -f /var/lib/dhcp/dhclient*.leases 2>/dev/null'" || true
@@ -152,8 +165,32 @@ else
 fi
 echo "      Done."
 
-# --- [7/7] Stop VM ---
-echo "[7/7] Stopping VM..."
+# --- [8/9] Update vm-tools-meta (golden_image=true) ---
+echo "[8/9] Updating vm-tools-meta (golden_image=true)..."
+META_FILE="$HOME/.tart/vms/$VM_NAME/vm-tools-meta"
+GOLDEN_PREPARED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+if [[ -f "$META_FILE" ]]; then
+    awk -v ts="$GOLDEN_PREPARED_AT" '
+        /^golden_image=/ { print "golden_image=true"; next }
+        /^golden_prepared_at=/ { print "golden_prepared_at=" ts; next }
+        { print }
+    ' "$META_FILE" > "$META_FILE.tmp" && mv "$META_FILE.tmp" "$META_FILE"
+else
+    # VM was provisioned before vm-tools-meta existed; write a partial marker.
+    echo "      (no existing marker — writing partial; rerun provision-vm.sh on a clone for full info)"
+    cat > "$META_FILE" <<EOF
+guest_os=$GUEST_OS
+linux_distro=
+vm_tools_rev=unknown
+provisioned_at=unknown
+golden_image=true
+golden_prepared_at=$GOLDEN_PREPARED_AT
+EOF
+fi
+echo "      Done."
+
+# --- [9/9] Stop VM ---
+echo "[9/9] Stopping VM..."
 tart stop "$VM_NAME"
 echo "      Done."
 

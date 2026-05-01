@@ -210,13 +210,32 @@ if [[ "$BASE_IMAGE" != */* ]]; then
     LOCAL_BASE=true
 fi
 
+# Read base image's vm-tools metadata (if any) so we can flag non-golden bases.
+BASE_GOLDEN_IMAGE=""
+BASE_GOLDEN_PREPARED_AT=""
+BASE_VM_TOOLS_REV=""
+if [[ "$LOCAL_BASE" == true ]]; then
+    BASE_META="$HOME/.tart/vms/$BASE_IMAGE/vm-tools-meta"
+    if [[ -f "$BASE_META" ]]; then
+        BASE_GOLDEN_IMAGE=$(grep '^golden_image=' "$BASE_META" | cut -d= -f2-)
+        BASE_GOLDEN_PREPARED_AT=$(grep '^golden_prepared_at=' "$BASE_META" | cut -d= -f2-)
+        BASE_VM_TOOLS_REV=$(grep '^vm_tools_rev=' "$BASE_META" | cut -d= -f2-)
+    fi
+fi
+
 echo "=== Provision VM: $VM_NAME ==="
 echo "  Guest OS   : ${GUEST_OS}$(if [[ "$GUEST_OS" == "linux" ]]; then echo " ($LINUX_DISTRO)"; fi)"
 echo "  Base image : $BASE_IMAGE"
 echo "  Disk size  : ${DISK_GB} GB"
 echo "  Headless   : $HEADLESS"
 echo "  Host user  : $HOST_USER"
-echo "  Local base : $LOCAL_BASE"
+if [[ "$LOCAL_BASE" == false ]]; then
+    echo "  Local base : false"
+elif [[ "$BASE_GOLDEN_IMAGE" == "true" ]]; then
+    echo "  Local base : true (golden image, prepared ${BASE_GOLDEN_PREPARED_AT:-unknown}${BASE_VM_TOOLS_REV:+, vm-tools@$BASE_VM_TOOLS_REV})"
+else
+    echo "  Local base : true (NOT a prepared golden image — see warning below)"
+fi
 if [[ "$GUEST_OS" == "macos" ]]; then
     echo "  Xcode      : $(if [[ "$NO_XCODE" == true ]]; then echo "skip"; else echo "$XCODE_VERSION"; fi)"
 fi
@@ -229,6 +248,18 @@ if [[ "$ANDROID" == true ]]; then
     echo "               Emulator runs on host (start-android-dev.sh)"
 fi
 echo ""
+
+if [[ "$LOCAL_BASE" == true && "$BASE_GOLDEN_IMAGE" != "true" ]]; then
+    PREP_FLAG=""
+    [[ "$GUEST_OS" == "linux" ]] && PREP_FLAG=" --linux"
+    echo "  WARNING: base image '$BASE_IMAGE' was not prepared via prepare-golden-image.sh."
+    echo "           User SSH keys (id_ed25519, signing key, mac-host-git) may be inherited"
+    echo "           from the source VM, which means multiple VMs could end up sharing keys."
+    echo "           For a clean start, abort (Ctrl-C) and run:"
+    echo "               $SCRIPT_DIR/prepare-golden-image.sh $BASE_IMAGE$PREP_FLAG"
+    echo "           ...before re-running this provision."
+    echo ""
+fi
 
 # --- Prompt for credentials upfront (so provisioning can run unattended after this point,
 # except for the Xcode 2FA prompt which requires interaction) ---

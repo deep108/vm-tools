@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DISK_GB=""
 BASE_IMAGE=""
 BASE_IMAGE_SET=false
-HEADLESS=false
+HEADLESS=""  # empty: default by OS (Linux=headless, macOS=GUI). --headless / --gui forces.
 GUEST_OS="macos"
 LINUX_DISTRO="debian"
 GUEST_OS_EXPLICIT=false
@@ -20,14 +20,15 @@ NO_SIGNING=false
 
 # --- Usage ---
 usage() {
-    echo "Usage: $0 <vm-name> [--linux] [--ubuntu] [--disk <GB>] [--base <image>] [--headless] [--no-xcode] [--xcode-version <ver>] [--android] [--no-signing]"
+    echo "Usage: $0 <vm-name> [--linux] [--ubuntu] [--disk <GB>] [--base <image>] [--headless | --gui] [--no-xcode] [--xcode-version <ver>] [--android] [--no-signing]"
     echo ""
     echo "  <vm-name>             Required. Name for the new Tart VM."
     echo "  --linux               Create a Linux VM (default: Debian Trixie)."
     echo "  --ubuntu              Use Ubuntu 24.04 instead of Debian (implies --linux)."
     echo "  --disk <GB>           Disk size in GB (default: 80 for macOS, 20 for Linux)."
     echo "  --base <image>        Source Tart image to clone."
-    echo "  --headless            Run VM without a UI window."
+    echo "  --headless            Run VM without a UI window (default for Linux)."
+    echo "  --gui                 Run VM with a UI window (default for macOS)."
     echo "  --no-xcode            Skip Xcode installation (for quick test provisions)."
     echo "  --xcode-version <ver> Xcode version to install (default: latest stable)."
     echo "  --android             Install Android dev tools (macOS: Android Studio + SDK;"
@@ -70,6 +71,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --headless)
             HEADLESS=true
+            shift
+            ;;
+        --gui)
+            HEADLESS=false
             shift
             ;;
         --no-xcode)
@@ -249,6 +254,17 @@ if [[ -z "$DISK_GB" ]]; then
         DISK_GB=20
     else
         DISK_GB=80
+    fi
+fi
+
+# Default headless mode: Linux runs headless, macOS shows the GUI window.
+# (Several macOS provisioning steps need a window server: iTerm2 prefs gen,
+# auto-login verification, etc. Linux has no equivalent.)
+if [[ -z "$HEADLESS" ]]; then
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        HEADLESS=true
+    else
+        HEADLESS=false
     fi
 fi
 

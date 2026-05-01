@@ -1,0 +1,6 @@
+# Per-machine Claude Code permission grants — should stay local, not propagate
+# across clones (each machine grants its own tool/MCP permissions).
+.claude/settings.local.json
+
+# Personal scratchpad
+claude-scratch.txt

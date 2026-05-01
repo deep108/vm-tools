@@ -15,7 +15,7 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 | Generate dev VM's outbound SSH keypair (`id_ed25519`) | Per-VM | **Automated** (`provision-vm.sh`, after step 10) |
 | Add dev VM's pubkey to Hetzner authorized_keys | Per-(VM, Hetzner-box) | SSH-pipe trick from host |
 | NOPASSWD sudo on Hetzner for admin user | Per-Hetzner-box | Manual one-liner |
-| Generate signing key + configure SSH signing + allowed_signers | Per-VM | Manual multi-step |
+| Generate signing key + configure SSH signing + allowed_signers | Per-VM | **Automated** (`provision-vm.sh`, step 14; `--no-signing` to skip) |
 | GCP project + Artifact Registry repo creation | Per-project (or per-server-tier) | Web console |
 | Service account + repo-level IAM + JSON key | Per-project | Web console |
 | Encrypt `.kamal/secrets.age` with age | Per-project | Manual `age -p` |
@@ -31,30 +31,11 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 
 Placed after step 10 (so the hostname is set; the key comment reads `<user>@<vm-name>`). Idempotent via `[ -f ~/.ssh/id_ed25519 ] ||`.
 
-### 1.2 `provision-vm.sh`: signing key + SSH signing setup
+### 1.2 `provision-vm.sh`: signing key + SSH signing setup — **Done**
 
-Generates a passphrase-protected signing key, configures git to use SSH-based signing, sets up `allowed_signers`. One-time per VM, interactive (passphrase prompt).
+Implemented as step `[14/23]`, after the bootstrap step. Passphrase prompted upfront alongside password/Apple ID, passed to `ssh-keygen -N`. Idempotent (`[ -f ~/.ssh/id_ed25519_signing ] ||`). Writes `~/.config/git/allowed_signers` from current `user.email` + signing pubkey on every run, so an updated email flows through on re-provision.
 
-**Change**: add a new step (probably `[12c/22]` or similar) that:
-
-1. Generates `~/.ssh/id_ed25519_signing` with `ssh-keygen` (interactive — user provides passphrase)
-2. `git config --global gpg.format ssh`
-3. `git config --global user.signingkey ~/.ssh/id_ed25519_signing.pub`
-4. Writes `~/.config/git/allowed_signers` using the email already propagated from host
-5. `git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers`
-
-Add `--no-signing` flag to skip on VMs that won't deploy from. Default = enabled.
-
-Pseudocode skeleton:
-
-```bash
-if [[ "$NO_SIGNING" == false ]]; then
-    echo "[12c/22] Setting up git SSH signing key..."
-    vm_exec_user "ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_signing \
-        -C '\$(whoami)@\$(hostname) (git-signing)'"
-    # ... configure git, write allowed_signers
-fi
-```
+Flags: `--no-signing` to skip; `--non-interactive` implies `--no-signing` (no way to prompt for a passphrase). Skipped key generation on `LOCAL_BASE` re-provisions when no passphrase prompt happened (key was preserved); generation runs on golden-image clones (key was cleaned by `prepare-golden-image.sh`).
 
 Note: the signing key is generated *fresh* per VM and never propagated. Each new VM gets its own. The pubkey gets added to `allowed_signers` on that VM. If you sign on multiple VMs, each VM's pubkey needs to be in each `allowed_signers` (or added to a shared one in the dotfiles). Consider this when scaling to multiple dev VMs.
 
@@ -155,7 +136,7 @@ ssh "$VM" "ssh -o StrictHostKeyChecking=accept-new daviddeepdev@$HETZNER_IP echo
 When you come back to this:
 
 1. ~~Tier 1.1~~ — Done.
-2. Tier 1.2 (signing key — saves ~5 manual steps per VM)
+2. ~~Tier 1.2~~ — Done.
 3. Tier 1.3 (scaffolding script — saves the long sed dance)
 4. *Then evaluate*: does Tier 2.1 (GAR automation) still feel painful enough to do? `gcloud` is now installed on the host (used for the GAR cleanup-policy fix), so that lift is smaller.
 

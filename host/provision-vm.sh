@@ -15,10 +15,11 @@ NO_XCODE=false
 XCODE_VERSION="--latest"
 ANDROID=false
 NON_INTERACTIVE=false
+NO_SIGNING=false
 
 # --- Usage ---
 usage() {
-    echo "Usage: $0 <vm-name> [--linux] [--ubuntu] [--disk <GB>] [--base <image>] [--headless] [--no-xcode] [--xcode-version <ver>] [--android]"
+    echo "Usage: $0 <vm-name> [--linux] [--ubuntu] [--disk <GB>] [--base <image>] [--headless] [--no-xcode] [--xcode-version <ver>] [--android] [--no-signing]"
     echo ""
     echo "  <vm-name>             Required. Name for the new Tart VM."
     echo "  --linux               Create a Linux VM (default: Debian Trixie)."
@@ -32,6 +33,7 @@ usage() {
     echo "                        Linux: IntelliJ IDEA CE + SDK + XFCE desktop)."
     echo "                        Emulator runs on host — use start-android-dev.sh."
     echo "  --non-interactive     Skip prompts; use 'admin' as password (for testing)."
+    echo "  --no-signing          Skip git SSH signing-key setup (default: enabled)."
     exit 1
 }
 
@@ -79,6 +81,10 @@ while [[ $# -gt 0 ]]; do
             NON_INTERACTIVE=true
             shift
             ;;
+        --no-signing)
+            NO_SIGNING=true
+            shift
+            ;;
         --xcode-version)
             [[ -z "${2:-}" ]] && { echo "Error: --xcode-version requires a value"; usage; }
             XCODE_VERSION="$2"
@@ -92,6 +98,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$VM_NAME" ]] && { echo "Error: <vm-name> is required"; usage; }
+
+# --non-interactive can't prompt for a passphrase; signing requires one.
+if [[ "$NON_INTERACTIVE" == true ]]; then
+    NO_SIGNING=true
+fi
 
 # Set default disk size based on guest OS (if not explicitly provided)
 if [[ -z "$DISK_GB" ]]; then
@@ -266,6 +277,7 @@ fi
 PASSWORD=""
 APPLE_ID=""
 APPLE_PASSWORD=""
+SIGNING_PASSPHRASE=""
 if [[ "$LOCAL_BASE" == false ]]; then
     if [[ "$NON_INTERACTIVE" == true ]]; then
         PASSWORD="admin"
@@ -293,38 +305,59 @@ if [[ "$LOCAL_BASE" == false ]]; then
     echo ""
 fi
 
-# --- [1/22] Check for conflicts ---
-echo "[1/22] Checking for existing VM..."
+# Signing passphrase: prompt only when we'll actually generate a key. Fresh provisions
+# (LOCAL_BASE=false) and clone-from-golden (LOCAL_BASE=true with golden_image=true)
+# both need a fresh keygen. Re-provisioning a VM whose key already exists doesn't.
+if [[ "$NO_SIGNING" == false ]]; then
+    if [[ "$LOCAL_BASE" == false || "$BASE_GOLDEN_IMAGE" == "true" ]]; then
+        echo "Git signing key passphrase (blank = unencrypted):"
+        while true; do
+            read -s -p "  Passphrase: " SIGNING_PASSPHRASE
+            echo
+            read -s -p "  Confirm:    " SIGNING_PASSPHRASE_CONFIRM
+            echo
+            if [[ "$SIGNING_PASSPHRASE" == "$SIGNING_PASSPHRASE_CONFIRM" ]]; then
+                break
+            else
+                echo "  Passphrases do not match. Please try again."
+            fi
+        done
+        echo ""
+    fi
+fi
+
+# --- [1/23] Check for conflicts ---
+echo "[1/23] Checking for existing VM..."
 if tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$VM_NAME"; then
     echo "Error: VM '$VM_NAME' already exists. Delete it first with: tart delete $VM_NAME"
     exit 1
 fi
 echo "       OK — no conflict."
 
-# --- [2/22] Pull latest base image (skip for local VMs) ---
+# --- [2/23] Pull latest base image (skip for local VMs) ---
 if [[ "$BASE_IMAGE" == */* ]]; then
-    echo "[2/22] Pulling latest '$BASE_IMAGE'..."
+    echo "[2/23] Pulling latest '$BASE_IMAGE'..."
     tart pull "$BASE_IMAGE"
     echo "       Done."
 else
-    echo "[2/22] Using local VM '$BASE_IMAGE' as base (skipping pull)."
+    echo "[2/23] Using local VM '$BASE_IMAGE' as base (skipping pull)."
     if ! tart list 2>/dev/null | awk 'NR>1 {print $2}' | grep -qx "$BASE_IMAGE"; then
         echo "Error: Local VM '$BASE_IMAGE' not found. Run 'tart list' to see available VMs."
         exit 1
     fi
 fi
 
-# --- [3/22] Clone base image ---
-echo "[3/22] Cloning '$BASE_IMAGE' -> '$VM_NAME'..."
+# --- [3/23] Clone base image ---
+echo "[3/23] Cloning '$BASE_IMAGE' -> '$VM_NAME'..."
 tart clone "$BASE_IMAGE" "$VM_NAME"
 VM_CLONED=true
 echo "       Done."
 
-# --- [4/22] Resize disk (and set resources for Linux Android VMs) ---
+# --- [4/23] Resize disk (and set resources for Linux Android VMs) ---
 DISK_GREW=false
 DISK_IMG="$HOME/.tart/vms/$VM_NAME/disk.img"
 DISK_SIZE_BEFORE=$(stat -f%z "$DISK_IMG")
-echo "[4/22] Setting disk size to ${DISK_GB} GB..."
+echo "[4/23] Setting disk size to ${DISK_GB} GB..."
 if RESIZE_OUT=$(tart set "$VM_NAME" --disk-size "$DISK_GB" 2>&1); then
     DISK_SIZE_AFTER=$(stat -f%z "$DISK_IMG")
     if [[ "$DISK_SIZE_AFTER" -gt "$DISK_SIZE_BEFORE" ]]; then
@@ -360,8 +393,8 @@ if [[ "$GUEST_OS" == "macos" && "$DISK_GREW" == true ]]; then
     fi
 fi
 
-# --- [5/22] Start VM ---
-echo "[5/22] Starting VM..."
+# --- [5/23] Start VM ---
+echo "[5/23] Starting VM..."
 TART_RUN_ARGS=("$VM_NAME")
 if [[ "$HEADLESS" == true ]]; then
     TART_RUN_ARGS+=(--no-graphics)
@@ -371,11 +404,11 @@ tart run "${TART_RUN_ARGS[@]}" &
 TART_PID=$!
 echo "       VM started (PID $TART_PID)."
 
-# --- [6/22] Wait for SSH ---
+# --- [6/23] Wait for SSH ---
 CONNECT_TIMEOUT=120
 CONNECT_START=$(date +%s)
 
-printf "[6/22] Waiting for VM IP..."
+printf "[6/23] Waiting for VM IP..."
 VM_IP=""
 while [[ -z "$VM_IP" ]]; do
     CONNECT_ELAPSED=$(( $(date +%s) - CONNECT_START ))
@@ -387,7 +420,7 @@ while [[ -z "$VM_IP" ]]; do
     VM_IP=$(tart ip "$VM_NAME" 2>/dev/null || true)
     [[ -z "$VM_IP" ]] && sleep 2
 done
-printf "\r[6/22] Got VM IP: $VM_IP. Waiting for SSH...%-10s\n"
+printf "\r[6/23] Got VM IP: $VM_IP. Waiting for SSH...%-10s\n"
 
 while true; do
     CONNECT_ELAPSED=$(( $(date +%s) - CONNECT_START ))
@@ -395,16 +428,16 @@ while true; do
         echo "Error: Timed out waiting for SSH after ${CONNECT_TIMEOUT}s."
         exit 1
     fi
-    printf "\r[6/22] Waiting for SSH... %ds" "$CONNECT_ELAPSED"
+    printf "\r[6/23] Waiting for SSH... %ds" "$CONNECT_ELAPSED"
     if sshpass -p admin ssh $SSH_PASS -o ConnectTimeout=2 admin@"$VM_IP" true 2>/dev/null; then
         break
     fi
     sleep 2
 done
-printf "\r[6/22] SSH ready.%-30s\n" ""
+printf "\r[6/23] SSH ready.%-30s\n" ""
 
-# --- [7/22] Regenerate SSH host keys (cloned VMs share the base image's keys) ---
-echo "[7/22] Regenerating SSH host keys..."
+# --- [7/23] Regenerate SSH host keys (cloned VMs share the base image's keys) ---
+echo "[7/23] Regenerating SSH host keys..."
 if [[ "$GUEST_OS" == "linux" ]]; then
     # Run as a single command string — restarting sshd kills our SSH connection,
     # so we combine everything and tolerate the connection drop.
@@ -428,9 +461,9 @@ if [[ "$GUEST_OS" == "macos" && "$DISK_GREW" == true ]]; then
         [ -n \"\$APFS\" ] && sudo diskutil apfs resizeContainer \"\$APFS\" 0"
 fi
 
-# --- [8/22] Create user (skip for local base — user already exists) ---
+# --- [8/23] Create user (skip for local base — user already exists) ---
 if [[ "$LOCAL_BASE" == false ]]; then
-    echo "[8/22] Creating user '$HOST_USER' on VM..."
+    echo "[8/23] Creating user '$HOST_USER' on VM..."
     if [[ "$GUEST_OS" == "linux" ]]; then
         PASS_HASH=$(openssl passwd -6 "$PASSWORD")
         vm_exec sudo useradd -m -s /bin/bash -G sudo -p "'$PASS_HASH'" "$HOST_USER"
@@ -468,14 +501,14 @@ if [[ "$LOCAL_BASE" == false ]]; then
     fi
     echo "       User created."
 else
-    echo "[8/22] Skipping user creation (local base — '$HOST_USER' already exists)."
+    echo "[8/23] Skipping user creation (local base — '$HOST_USER' already exists)."
 fi
 
-# --- [9/22] Install/update SSH public key for user ---
+# --- [9/23] Install/update SSH public key for user ---
 if [[ "$LOCAL_BASE" == true ]]; then
-    echo "[9/22] Skipping SSH key install (local base — key already in place)."
+    echo "[9/23] Skipping SSH key install (local base — key already in place)."
 else
-    echo "[9/22] Installing SSH public key for '$HOST_USER'..."
+    echo "[9/23] Installing SSH public key for '$HOST_USER'..."
     SSH_PUBKEY=""
     for key_file in ~/.ssh/id_ed25519.pub ~/.ssh/id_rsa.pub ~/.ssh/id_ecdsa.pub; do
         if [[ -f "$key_file" ]]; then
@@ -510,8 +543,8 @@ else
     fi
 fi
 
-# --- [10/22] Set computer name and timezone ---
-echo "[10/22] Setting computer name to '$VM_NAME'..."
+# --- [10/23] Set computer name and timezone ---
+echo "[10/23] Setting computer name to '$VM_NAME'..."
 HOST_TZ=$(readlink /etc/localtime | sed 's|.*/zoneinfo/||')
 if [[ "$GUEST_OS" == "linux" ]]; then
     vm_exec_user "sudo hostnamectl set-hostname '$VM_NAME'"
@@ -532,9 +565,9 @@ echo "       Done (timezone: $HOST_TZ)."
 echo "        Ensuring outbound SSH keypair (id_ed25519) exists..."
 vm_exec_user "[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C '$HOST_USER@$VM_NAME'"
 
-# --- [11/22] Install Homebrew and git ---
+# --- [11/23] Install Homebrew and git ---
 if [[ "$LOCAL_BASE" == false ]]; then
-    echo "[11/22] Installing Homebrew and git..."
+    echo "[11/23] Installing Homebrew and git..."
     if [[ "$GUEST_OS" == "linux" ]]; then
         vm_exec_user "sudo apt-get update -qq"
         vm_exec_user "sudo apt-get install -y -qq git"
@@ -550,22 +583,22 @@ if [[ "$LOCAL_BASE" == false ]]; then
     fi
     echo "        Done."
 else
-    echo "[11/22] Skipping Homebrew/git install (local base)."
+    echo "[11/23] Skipping Homebrew/git install (local base)."
 fi
 
-# --- [12/22] Clone or update vm-tools ---
+# --- [12/23] Clone or update vm-tools ---
 if [[ "$LOCAL_BASE" == false ]]; then
-    echo "[12/22] Cloning vm-tools into VM..."
+    echo "[12/23] Cloning vm-tools into VM..."
     vm_exec_user "mkdir -p ~/dev && git clone https://github.com/deep108/vm-tools.git ~/dev/vm-tools"
     echo "        Done."
 else
-    echo "[12/22] Updating vm-tools in VM..."
+    echo "[12/23] Updating vm-tools in VM..."
     vm_exec_user "cd ~/dev/vm-tools && git pull"
     echo "        Done."
 fi
 
-# --- [13/22] Run bootstrap ---
-echo "[13/22] Running bootstrap..."
+# --- [13/23] Run bootstrap ---
+echo "[13/23] Running bootstrap..."
 
 # Propagate git identity from host before bootstrap so user.name / user.email
 # don't need to be hardcoded in dotfiles. Idempotent: if host has no global
@@ -594,9 +627,44 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
     vm_exec_user "brew cleanup --prune=all"
 fi
 
-# --- [14/22] Install Xcode (macOS only, fresh provision, skip with --no-xcode) ---
+# --- [14/23] Set up git SSH signing key ---
+if [[ "$NO_SIGNING" == true ]]; then
+    echo "[14/23] Skipping git SSH signing setup (--no-signing)."
+else
+    echo "[14/23] Setting up git SSH signing key..."
+    # Run keygen only on paths where we prompted for a passphrase upfront —
+    # fresh provisions or golden-image clones (where the source's signing key
+    # was cleaned by prepare-golden-image.sh). LOCAL_BASE re-provisions skip
+    # keygen and rely on the existing key. The empty-passphrase case (user
+    # chose unencrypted) still runs keygen with -N ''.
+    if [[ "$LOCAL_BASE" == false || "$BASE_GOLDEN_IMAGE" == "true" ]]; then
+        # NOTE: passing the passphrase via -N momentarily exposes it on the VM's
+        # process list. Acceptable for a single-user dev VM.
+        vm_exec_user "[ -f ~/.ssh/id_ed25519_signing ] || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_signing -N '$SIGNING_PASSPHRASE' -C '$HOST_USER@$VM_NAME (git-signing)'"
+    fi
+    # Verify the key exists before writing config that references it.
+    if vm_exec_user "test -f ~/.ssh/id_ed25519_signing"; then
+        vm_exec_user "git config --global gpg.format ssh"
+        vm_exec_user "git config --global user.signingkey ~/.ssh/id_ed25519_signing.pub"
+        vm_exec_user "git config --global gpg.ssh.allowedSignersFile ~/.config/git/allowed_signers"
+        # Rewrite allowed_signers from current user.email + signing pubkey, so an
+        # updated email flows through on re-provision.
+        vm_exec_user 'mkdir -p ~/.config/git && \
+            EMAIL=$(git config --global user.email) && \
+            PUBKEY=$(cat ~/.ssh/id_ed25519_signing.pub) && \
+            echo "$EMAIL $PUBKEY" > ~/.config/git/allowed_signers'
+        echo "        Done."
+    else
+        echo "        WARNING: signing key missing on VM and no passphrase to generate one."
+        echo "                 Skipping git config. To set up signing later, run on the VM:"
+        echo "                   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_signing -C '$HOST_USER@$VM_NAME (git-signing)'"
+        echo "                 ...then re-run this provision."
+    fi
+fi
+
+# --- [15/23] Install Xcode (macOS only, fresh provision, skip with --no-xcode) ---
 if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false && "$NO_XCODE" == false ]]; then
-    echo "[14/22] Installing Xcode..."
+    echo "[15/23] Installing Xcode..."
     # Pre-tap manually: brew's internal git doesn't inherit GIT_CONFIG_COUNT,
     # so the osxkeychain credential helper fails over SSH. Direct git clone works.
     # Tap is XcodesOrg/made (repo: XcodesOrg/homebrew-made).
@@ -621,14 +689,14 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false && "$NO_XCODE" == false ]
     vm_exec_user "brew cleanup --prune=all"
     echo "        Xcode installed."
 elif [[ "$GUEST_OS" == "macos" && "$NO_XCODE" == true ]]; then
-    echo "[14/22] Skipping Xcode installation (--no-xcode)."
+    echo "[15/23] Skipping Xcode installation (--no-xcode)."
 else
-    echo "[14/22] Skipping Xcode installation (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[15/23] Skipping Xcode installation (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [15/22] Install Android SDK (fresh provision, opt-in with --android) ---
+# --- [16/23] Install Android SDK (fresh provision, opt-in with --android) ---
 if [[ "$LOCAL_BASE" == false && "$ANDROID" == true && "$GUEST_OS" == "macos" ]]; then
-    echo "[15/22] Installing Android development tools (macOS)..."
+    echo "[16/23] Installing Android development tools (macOS)..."
     # Install Java via mise (used by sdkmanager, Gradle, Firebase emulators)
     # Android Studio bundles its own JDK internally — this Java is for CLI tools
     vm_exec_user "mise use -g java@temurin-21"
@@ -656,7 +724,7 @@ if [[ "$LOCAL_BASE" == false && "$ANDROID" == true && "$GUEST_OS" == "macos" ]];
             'system-images;android-36;google_apis;arm64-v8a'"
     echo "        Done."
 elif [[ "$LOCAL_BASE" == false && "$ANDROID" == true && "$GUEST_OS" == "linux" ]]; then
-    echo "[15/22] Installing Android development tools (Linux)..."
+    echo "[16/23] Installing Android development tools (Linux)..."
     # Emulator runs on the host (Apple Silicon has no nested virt for macOS VMs,
     # and Cuttlefish in Linux VMs is too slow). This installs SDK + IDE for building
     # and editing; use start-android-dev.sh on the host for the emulator + ADB bridge.
@@ -754,14 +822,14 @@ StartupWMClass=jetbrains-idea-ce"
     echo "        Android SDK installed."
     echo "        Done."
 elif [[ "$ANDROID" != true ]]; then
-    echo "[15/22] Skipping Android (--android not specified)."
+    echo "[16/23] Skipping Android (--android not specified)."
 else
-    echo "[15/22] Skipping Android (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[16/23] Skipping Android (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [16/22] Install tart-guest-agent (macOS only, fresh provision) ---
+# --- [17/23] Install tart-guest-agent (macOS only, fresh provision) ---
 if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
-    echo "[16/22] Installing tart-guest-agent..."
+    echo "[17/23] Installing tart-guest-agent..."
     # Pre-tap manually (same osxkeychain workaround as step 14)
     vm_exec_user "mkdir -p /opt/homebrew/Library/Taps/cirruslabs && git clone https://github.com/cirruslabs/homebrew-cli /opt/homebrew/Library/Taps/cirruslabs/homebrew-cli"
     vm_exec_user "brew install tart-guest-agent"
@@ -774,12 +842,12 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
     vm_exec_user "curl -fsSL $PLIST_BASE/tart-guest-agent.plist | sed s,/Users/admin,/var/empty, | sudo tee /Library/LaunchAgents/org.cirruslabs.tart-guest-agent.plist > /dev/null"
     echo "        Done."
 else
-    echo "[16/22] Skipping tart-guest-agent (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[17/23] Skipping tart-guest-agent (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [17/22] Set up VS Code serve-web (skip for local base — already configured) ---
+# --- [18/23] Set up VS Code serve-web (skip for local base — already configured) ---
 if [[ "$LOCAL_BASE" == false ]]; then
-    echo "[17/22] Setting up VS Code serve-web..."
+    echo "[18/23] Setting up VS Code serve-web..."
     if [[ "$GUEST_OS" == "linux" ]]; then
         vm_exec_user "SERVICE_USER=$HOST_USER bash ~/dev/vm-tools/guest/setup-code-server-systemd.sh"
     else
@@ -787,12 +855,12 @@ if [[ "$LOCAL_BASE" == false ]]; then
     fi
     echo "        Done."
 else
-    echo "[17/22] Skipping VS Code serve-web (local base — already configured)."
+    echo "[18/23] Skipping VS Code serve-web (local base — already configured)."
 fi
 
-# --- [18/22] Reboot VM and verify (macOS: guest agent; Linux Android: LightDM) ---
+# --- [19/23] Reboot VM and verify (macOS: guest agent; Linux Android: LightDM) ---
 if [[ "$GUEST_OS" == "linux" && "$LOCAL_BASE" == false && "$ANDROID" == true ]]; then
-    echo "[18/22] Rebooting Linux VM for LightDM..."
+    echo "[19/23] Rebooting Linux VM for LightDM..."
     vm_exec_user "sudo reboot" || true
     # Wait for SSH to come back (no guest agent on Linux)
     REBOOT_TIMEOUT=120
@@ -805,15 +873,15 @@ if [[ "$GUEST_OS" == "linux" && "$LOCAL_BASE" == false && "$ANDROID" == true ]];
             echo "Error: Timed out waiting for SSH after reboot (${REBOOT_TIMEOUT}s)."
             exit 1
         fi
-        printf "\r[18/22] Waiting for SSH after reboot... %ds" "$REBOOT_ELAPSED"
+        printf "\r[19/23] Waiting for SSH after reboot... %ds" "$REBOOT_ELAPSED"
         if ssh $SSH_KEY -o ConnectTimeout=2 "$HOST_USER@$VM_IP" true 2>/dev/null; then
             break
         fi
         sleep 2
     done
-    printf "\r[18/22] SSH ready after reboot.%-30s\n" ""
+    printf "\r[19/23] SSH ready after reboot.%-30s\n" ""
 elif [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
-    echo "[18/22] Rebooting VM..."
+    echo "[19/23] Rebooting VM..."
     # Reboot via SSH — connection will drop, which is expected
     vm_exec_user "sudo /sbin/reboot" || true
     # Wait for guest agent to come back (verifies tart-guest-agent works for future use)
@@ -838,7 +906,7 @@ elif [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
                 echo "        Agent log: $(ssh $SSH_KEY "$HOST_USER@$VM_IP" "tail -5 /tmp/tart-guest-agent.log" 2>/dev/null || echo 'no log')"
                 exit 1
             fi
-            printf "\r[18/22] Waiting for guest agent after reboot... %ds" "$REBOOT_ELAPSED"
+            printf "\r[19/23] Waiting for guest agent after reboot... %ds" "$REBOOT_ELAPSED"
             if ! kill -0 "$PROBE_PID" 2>/dev/null; then
                 break
             fi
@@ -852,26 +920,26 @@ elif [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
             kill -9 "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null || true
         fi
     done
-    printf "\r[18/22] Guest agent ready after reboot.%-20s\n" ""
+    printf "\r[19/23] Guest agent ready after reboot.%-20s\n" ""
 else
-    echo "[18/22] Skipping reboot (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[19/23] Skipping reboot (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [19/22] Set auto-login user (macOS only, fresh provision) ---
+# --- [20/23] Set auto-login user (macOS only, fresh provision) ---
 if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
-    echo "[19/22] Setting auto-login user to '$HOST_USER'..."
+    echo "[20/23] Setting auto-login user to '$HOST_USER'..."
     # sysadminctl -autologin fails over SSH (error:22, XPC not accessible). Must use tart exec
     # (native macOS context via guest agent). The daemon needs a full boot cycle to establish
     # the Virtio channel, so this runs after the reboot in step 17.
     vm_exec_gui sudo sysadminctl -autologin set -userName "$HOST_USER" -password "$PASSWORD"
     echo "        Done."
 else
-    echo "[19/22] Skipping auto-login setup (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[20/23] Skipping auto-login setup (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [20/22] Reboot VM for auto-login to take effect (macOS only, fresh provision) ---
+# --- [21/23] Reboot VM for auto-login to take effect (macOS only, fresh provision) ---
 if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
-    echo "[20/22] Rebooting VM for auto-login to take effect..."
+    echo "[21/23] Rebooting VM for auto-login to take effect..."
     # Reboot via direct SSH — vm_exec_user herestring can silently fail,
     # and tart exec can hang when guest agent dies mid-reboot
     ssh $SSH_KEY "$HOST_USER@$VM_IP" "sudo /sbin/reboot" || true
@@ -888,7 +956,7 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
                 echo "Error: Timed out waiting for guest agent after reboot (${REBOOT_TIMEOUT}s)."
                 exit 1
             fi
-            printf "\r[20/22] Waiting for guest agent after reboot... %ds" "$REBOOT_ELAPSED"
+            printf "\r[21/23] Waiting for guest agent after reboot... %ds" "$REBOOT_ELAPSED"
             if ! kill -0 "$PROBE_PID" 2>/dev/null; then
                 break
             fi
@@ -902,7 +970,7 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
             kill -9 "$PROBE_PID" 2>/dev/null; wait "$PROBE_PID" 2>/dev/null || true
         fi
     done
-    printf "\r[20/22] Guest agent ready after reboot.%-20s\n" ""
+    printf "\r[21/23] Guest agent ready after reboot.%-20s\n" ""
     # Verify auto-login: the created user should now be the console user
     LOGGED_IN_USER=$(vm_exec_gui stat -f '%Su' /dev/console 2>/dev/null || true)
     if [[ "$LOGGED_IN_USER" == "$HOST_USER" ]]; then
@@ -911,12 +979,12 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
         echo "        Warning: expected '$HOST_USER' but console user is '${LOGGED_IN_USER:-unknown}'."
     fi
 else
-    echo "[20/22] Skipping reboot (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[21/23] Skipping reboot (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [21/22] Configure iTerm2 font (macOS only, fresh provision) ---
+# --- [22/23] Configure iTerm2 font (macOS only, fresh provision) ---
 if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
-    echo "[21/22] Configuring iTerm2 default font..."
+    echo "[22/23] Configuring iTerm2 default font..."
     ITERM_PLIST="/Users/${HOST_USER}/Library/Preferences/com.googlecode.iterm2.plist"
     # Launch iTerm2 to generate default preferences, then quit (requires GUI/WindowServer)
     vm_exec_gui open -a iTerm
@@ -945,11 +1013,11 @@ if [[ "$GUEST_OS" == "macos" && "$LOCAL_BASE" == false ]]; then
         fi
     fi
 else
-    echo "[21/22] Skipping iTerm2 config (${GUEST_OS}${LOCAL_BASE:+, local base})."
+    echo "[22/23] Skipping iTerm2 config (${GUEST_OS}${LOCAL_BASE:+, local base})."
 fi
 
-# --- [22/22] Get VM IP and show summary ---
-echo "[22/22] Provisioning complete."
+# --- [23/23] Get VM IP and show summary ---
+echo "[23/23] Provisioning complete."
 trap - EXIT INT TERM  # provisioning succeeded — don't delete the VM on exit
 VM_IP=$(tart ip "$VM_NAME" 2>/dev/null || echo "<unavailable>")
 

@@ -28,6 +28,27 @@ The git workflow (`bridge-vm-git.sh`) uses a layered SSH architecture:
 - **Host→GitHub**: Uses the user's own SSH key (configured in `~/.ssh/config` for `github.com`). VMs never connect to GitHub directly.
 - **Remote URLs**: Both scripts use SSH URLs (`git@github.com:`) for GitHub remotes on bare repos.
 
+```mermaid
+flowchart LR
+    subgraph host["Host (macOS)"]
+        H[host shell]
+        BR["bare repo<br/>~/dev/&lt;proj&gt;.git"]
+    end
+
+    V[Guest VM]
+    GH[(GitHub)]
+    HE["Hetzner /<br/>external SSH"]
+
+    H -- "ssh in<br/>host id_ed25519" --> V
+    V -- "git only<br/>mac-host-git<br/>command= restricted" --> BR
+    H -- "git<br/>host's GitHub key" --> GH
+    V -- "ssh<br/>VM id_ed25519 (step 10)" --> HE
+```
+
+Read this diagram as: VMs never talk to GitHub directly. The bare repo on the host is the bridge — VMs push/pull to it via the restricted `mac-host-git` key, and the host then pushes/pulls between the bare repo and GitHub using its own GitHub SSH key. Outbound from the VM (Hetzner deploys, etc.) goes through `~/.ssh/id_ed25519` generated per-VM during provisioning.
+
+**Git signing** (separate from SSH auth): step `[14/23]` of `provision-vm.sh` generates `~/.ssh/id_ed25519_signing`, registers its pubkey in `~/.config/git/allowed_signers`, and configures git to use SSH-format signing. The signing key signs `git tag -s` / `git commit -S` outputs; verification reads the pubkey from `allowed_signers`. Each VM gets its own per-VM signing key.
+
 ## Provisioning Notes
 
 - Base images: `macos-tahoe-vanilla` (macOS), `debian:trixie` (default Linux), `ubuntu:24.04` (Linux with `--ubuntu`); all from Cirrus Labs
@@ -49,6 +70,30 @@ The git workflow (`bridge-vm-git.sh`) uses a layered SSH architecture:
 - The Android emulator runs on the **host**, not inside VMs (Apple blocks nested virt for macOS guests; Linux emulator segfaults on ARM64). Use `start-android-dev.sh` on the host to manage the emulator and optionally bridge to a VM or sandbox.
 - `run-vm.sh` defaults to non-suspendable mode (audio works); `--suspendable` flag enables suspend/resume (macOS only, disables audio)
 - `run-vm.sh` supports `--nested` flag to enable nested virtualization (passes `--nested` to `tart run`)
+
+## VM Lifecycle
+
+A guest VM's directory under `~/.tart/vms/<name>/` carries a `vm-tools-meta` marker that distinguishes the four states it can be in. `provision-vm.sh` writes the marker on first provisioning; `prepare-golden-image.sh` flips `golden_image=true` and `golden_prepared_at`; `tart clone` copies the whole directory (marker included).
+
+```mermaid
+flowchart TD
+    R["Registry image<br/>ghcr.io/cirruslabs/..."]
+    W["Working VM<br/><br/>vm-tools-meta:<br/>guest_os, vm_tools_rev,<br/>provisioned_at,<br/>golden_image=false"]
+    G["Prepared golden image<br/><br/>vm-tools-meta:<br/>golden_image=true,<br/>golden_prepared_at=&lt;ts&gt;<br/>~/.ssh/id_*, mac-host-git*,<br/>allowed_signers all removed"]
+    C["Clone of golden<br/><br/>marker still says<br/>golden_image=true;<br/>user keys absent"]
+    X([deleted])
+
+    R -- "provision-vm.sh" --> W
+    W -- "provision-vm.sh<br/>(re-provision same VM,<br/>preserves keys)" --> W
+    W -- "prepare-golden-image.sh" --> G
+    G -- "tart clone" --> C
+    C -- "provision-vm.sh --base &lt;golden&gt;<br/>(generates fresh per-VM keys)" --> W
+    W -- "tart delete" --> X
+    G -- "tart delete" --> X
+```
+
+Reading the diagram: the only loop is **Working → Working** (re-provisioning a VM in place; idempotent keygen preserves existing keys). The clone-then-provision path always lands fresh keys because `prepare-golden-image.sh` cleared them on the way out. `provision-vm.sh` warns at the top if `LOCAL_BASE=true` but the base's marker says `golden_image=false` (meaning either an unpaired re-provision *or* a base that was never run through `prepare-golden-image.sh` — the latter is the case the warning is really for, since it would silently inherit user keys).
+
 ## Sandboxed Android Development
 
 Android emulator/device cannot run inside VMs on Apple Silicon (no nested virt in macOS guests; Linux emulator segfaults; Cuttlefish too slow). The emulator runs on the host; the AI agent runs in a sandbox.

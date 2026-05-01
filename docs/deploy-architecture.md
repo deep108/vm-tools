@@ -29,6 +29,32 @@ Single-VM model: deploys originate on the dev VM, no separate deploy VM.
    - Runs `docker login` on the dev VM (so buildx can forward credentials to the remote buildkit container)
    - Runs `kamal deploy` — Kamal builds remotely on Hetzner, pushes to GAR, pulls back, runs the container
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as You
+    participant DVM as Dev VM
+    participant K as Kamal CLI
+    participant HB as Hetzner box
+    participant GAR as Google Artifact Registry
+
+    Dev->>Dev: git tag -s vX.Y.Z
+    Dev->>DVM: git verify-tag vX.Y.Z
+    Dev->>DVM: bin/deploy vX.Y.Z
+    DVM->>DVM: decrypt .kamal/secrets.age
+    DVM->>GAR: docker login (SA key)
+    DVM->>K: kamal deploy
+    K->>HB: docker build via builder.remote
+    HB->>GAR: docker push vX.Y.Z
+    K->>HB: ssh + docker pull
+    HB->>GAR: docker pull vX.Y.Z
+    K->>HB: docker run new container
+    HB->>HB: kamal-proxy shifts traffic and drains old container
+    DVM->>DVM: shred secrets and docker logout (via exit trap)
+```
+
+Note that the **Hetzner builder and the deploy target are the same physical box** in this single-VM model — Kamal's `builder.remote` just means "build over SSH on this remote host" rather than locally on the dev VM (which would be ARM-emulating amd64 via QEMU, slow). The image still has to round-trip through GAR because Kamal's pull-on-deploy step always reads from the registry.
+
 **Security gates**
 - Signed git tags are the only deployable artifact; verification is a typed step at the prompt
 - Signing key passphrase entered per `git tag -s` (no agent caching)

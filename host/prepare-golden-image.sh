@@ -132,9 +132,16 @@ echo "      Done."
 # Removing these forces provision-vm.sh to regenerate per-clone, so multiple
 # VMs derived from one golden image don't share keys. authorized_keys is left
 # in place so the host can still SSH in after cloning.
+#
+# Wrapped in `bash -c` so glob expansion is governed by bash, not the user's
+# login shell. The Linux user's shell is zsh (set by bootstrap-linux.sh:40),
+# and zsh's default `nomatch` raises an error when ~/.ssh/mac-host-git*
+# doesn't match — which aborts the whole rm before any other glob is
+# expanded, leaving the id_* keys in place. bash treats unmatched globs as
+# literals, which `rm -f` then tolerates.
 echo "[4/9] Removing user SSH keys (id_*, mac-host-git*, allowed_signers)..."
 if [[ "$GUEST_OS" == "linux" ]]; then
-    vm_ssh "rm -f ~/.ssh/id_* ~/.ssh/mac-host-git* ~/.config/git/allowed_signers 2>/dev/null" || true
+    vm_ssh "bash -c 'rm -f ~/.ssh/id_* ~/.ssh/mac-host-git* ~/.config/git/allowed_signers 2>/dev/null'" || true
 else
     tart exec "$VM_NAME" bash -c "rm -f ~/.ssh/id_* ~/.ssh/mac-host-git* ~/.config/git/allowed_signers 2>/dev/null" || true
 fi

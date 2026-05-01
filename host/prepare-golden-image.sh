@@ -108,12 +108,18 @@ else
 fi
 echo "      Done."
 
-# --- [2/9] SSH host keys (will be regenerated on clone by provision-vm.sh) ---
-echo "[2/9] Removing SSH host keys..."
+# --- [2/9] SSH host keys: rotate to fresh ones ---
+# We rotate (rm + ssh-keygen -A) instead of just removing, because some Linux
+# guest images don't auto-regenerate missing host keys on boot — clones from
+# a "no keys" golden image then can't start sshd, and provision-vm.sh's
+# step 6 (Wait for SSH) times out before step 7 (which rotates per-clone)
+# can run. Generating keys here ensures the clone boots SSH-able. Step 7
+# then rotates again per-clone so each VM ends up with unique keys.
+echo "[2/9] Rotating SSH host keys..."
 if [[ "$GUEST_OS" == "linux" ]]; then
-    vm_ssh "sudo bash -c 'rm -f /etc/ssh/ssh_host_*'"
+    vm_ssh "sudo bash -c 'rm -f /etc/ssh/ssh_host_* && ssh-keygen -A'"
 else
-    tart exec "$VM_NAME" sudo rm -f /etc/ssh/ssh_host_*
+    tart exec "$VM_NAME" sudo bash -c "rm -f /etc/ssh/ssh_host_* && ssh-keygen -A"
 fi
 echo "      Done."
 

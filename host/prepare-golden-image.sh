@@ -24,10 +24,12 @@ VM_NAME="$1"
 shift
 
 GUEST_OS="macos"
+GUEST_OS_EXPLICIT=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --linux)
             GUEST_OS="linux"
+            GUEST_OS_EXPLICIT=true
             shift
             ;;
         *)
@@ -36,6 +38,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Adopt OS from VM's marker when --linux wasn't explicitly passed.
+if [[ "$GUEST_OS_EXPLICIT" == false ]]; then
+    META_FILE="$HOME/.tart/vms/$VM_NAME/vm-tools-meta"
+    if [[ -f "$META_FILE" ]]; then
+        MARKER_GUEST_OS=$(grep '^guest_os=' "$META_FILE" | cut -d= -f2-)
+        [[ -n "$MARKER_GUEST_OS" ]] && GUEST_OS="$MARKER_GUEST_OS"
+    fi
+fi
 
 HOST_USER="$(whoami)"
 SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10"

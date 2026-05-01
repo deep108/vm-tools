@@ -9,6 +9,7 @@ GUI=""  # empty = auto (macOS: GUI, Linux: headless)
 SUSPENDABLE=false
 NESTED=false
 GUEST_OS="macos"
+GUEST_OS_EXPLICIT=false
 VM_NAME=""
 SSH_USER="$USER"
 SSH_TIMEOUT=120
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --linux)
             GUEST_OS="linux"
+            GUEST_OS_EXPLICIT=true
             shift
             ;;
         --gui)
@@ -99,16 +101,19 @@ if [[ "$STATE" == "running" ]]; then
     exit 1
 fi
 
-# --- Auto-detect guest OS from disk size ---
-# HACK: tart doesn't expose the guest OS type. Cirrus Labs base images use 50GB disks
-# for macOS and 20GB for Linux, and our provisioning preserves these defaults. We use
-# a 25GB threshold to guess: disk < 25GB → Linux, else macOS. The --linux flag still
-# works as an explicit override. This will break if someone creates a small macOS image
-# or a large (>= 25GB) Linux image, but it covers all standard Cirrus Labs bases.
-if [[ "$GUEST_OS" == "macos" ]]; then
-    DISK_GB=$(echo "$VM_LINE" | awk '{print $3}')
-    if [[ "$DISK_GB" -lt 25 ]] 2>/dev/null; then
-        GUEST_OS="linux"
+# --- Determine guest OS: --linux flag wins; else read marker; else fall back to size guess ---
+# The size guess covers VMs provisioned before vm-tools-meta existed.
+if [[ "$GUEST_OS_EXPLICIT" == false ]]; then
+    META_FILE="$HOME/.tart/vms/$VM_NAME/vm-tools-meta"
+    if [[ -f "$META_FILE" ]]; then
+        MARKER_GUEST_OS=$(grep '^guest_os=' "$META_FILE" | cut -d= -f2-)
+        [[ -n "$MARKER_GUEST_OS" ]] && GUEST_OS="$MARKER_GUEST_OS"
+    else
+        # Legacy heuristic: Cirrus Labs base images are 50GB macOS / 20GB Linux.
+        DISK_GB=$(echo "$VM_LINE" | awk '{print $3}')
+        if [[ "$DISK_GB" -lt 25 ]] 2>/dev/null; then
+            GUEST_OS="linux"
+        fi
     fi
 fi
 

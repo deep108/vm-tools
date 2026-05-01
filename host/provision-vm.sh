@@ -10,6 +10,7 @@ BASE_IMAGE_SET=false
 HEADLESS=false
 GUEST_OS="macos"
 LINUX_DISTRO="debian"
+GUEST_OS_EXPLICIT=false
 VM_NAME=""
 NO_XCODE=false
 XCODE_VERSION="--latest"
@@ -52,11 +53,13 @@ while [[ $# -gt 0 ]]; do
             ;;
         --linux)
             GUEST_OS="linux"
+            GUEST_OS_EXPLICIT=true
             shift
             ;;
         --ubuntu)
             GUEST_OS="linux"
             LINUX_DISTRO="ubuntu"
+            GUEST_OS_EXPLICIT=true
             shift
             ;;
         --base)
@@ -104,16 +107,10 @@ if [[ "$NON_INTERACTIVE" == true ]]; then
     NO_SIGNING=true
 fi
 
-# Set default disk size based on guest OS (if not explicitly provided)
-if [[ -z "$DISK_GB" ]]; then
-    if [[ "$GUEST_OS" == "linux" ]]; then
-        DISK_GB=20
-    else
-        DISK_GB=80
-    fi
-fi
-
-# Set default base image based on guest OS (if not explicitly provided)
+# Set default base image based on guest OS (if not explicitly provided).
+# Disk-size default is deferred until after the marker read below, so that
+# adopting GUEST_OS from the base's marker (LOCAL_BASE=true case) flows
+# through to a correct DISK_GB default.
 if [[ "$BASE_IMAGE_SET" == false ]]; then
     if [[ "$GUEST_OS" == "linux" ]]; then
         if [[ "$LINUX_DISTRO" == "ubuntu" ]]; then
@@ -221,16 +218,37 @@ if [[ "$BASE_IMAGE" != */* ]]; then
     LOCAL_BASE=true
 fi
 
-# Read base image's vm-tools metadata (if any) so we can flag non-golden bases.
+# Read base image's vm-tools metadata (if any) so we can flag non-golden bases
+# and adopt the base's guest_os/linux_distro when --linux/--ubuntu wasn't passed.
 BASE_GOLDEN_IMAGE=""
 BASE_GOLDEN_PREPARED_AT=""
 BASE_VM_TOOLS_REV=""
+BASE_GUEST_OS=""
+BASE_LINUX_DISTRO=""
 if [[ "$LOCAL_BASE" == true ]]; then
     BASE_META="$HOME/.tart/vms/$BASE_IMAGE/vm-tools-meta"
     if [[ -f "$BASE_META" ]]; then
         BASE_GOLDEN_IMAGE=$(grep '^golden_image=' "$BASE_META" | cut -d= -f2-)
         BASE_GOLDEN_PREPARED_AT=$(grep '^golden_prepared_at=' "$BASE_META" | cut -d= -f2-)
         BASE_VM_TOOLS_REV=$(grep '^vm_tools_rev=' "$BASE_META" | cut -d= -f2-)
+        BASE_GUEST_OS=$(grep '^guest_os=' "$BASE_META" | cut -d= -f2-)
+        BASE_LINUX_DISTRO=$(grep '^linux_distro=' "$BASE_META" | cut -d= -f2-)
+    fi
+fi
+
+# Adopt OS from base marker when no --linux/--ubuntu was explicitly passed.
+# Explicit flag still wins (in case the marker is wrong/stale).
+if [[ "$GUEST_OS_EXPLICIT" == false && -n "$BASE_GUEST_OS" ]]; then
+    GUEST_OS="$BASE_GUEST_OS"
+    [[ -n "$BASE_LINUX_DISTRO" ]] && LINUX_DISTRO="$BASE_LINUX_DISTRO"
+fi
+
+# Default disk size now that GUEST_OS is settled (post-marker-override).
+if [[ -z "$DISK_GB" ]]; then
+    if [[ "$GUEST_OS" == "linux" ]]; then
+        DISK_GB=20
+    else
+        DISK_GB=80
     fi
 fi
 

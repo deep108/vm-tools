@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # --- Defaults ---
 DISK_GB=""
 BASE_IMAGE=""
@@ -925,6 +927,21 @@ if [[ "$VM_IP" != "<unavailable>" ]]; then
     ssh-keygen -R "$VM_IP" 2>/dev/null || true
     ssh-keyscan -H "$VM_IP" >> ~/.ssh/known_hosts 2>/dev/null
 fi
+
+# Write VM metadata for downstream scripts (resize-vm-disk.sh, prepare-golden-image.sh, etc.).
+# Lives next to disk.img so it travels with the VM under tart clone.
+META_FILE="$HOME/.tart/vms/$VM_NAME/vm-tools-meta"
+VM_TOOLS_REV=$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo "unknown")
+META_LINUX_DISTRO=""
+[[ "$GUEST_OS" == "linux" ]] && META_LINUX_DISTRO="$LINUX_DISTRO"
+cat > "$META_FILE" <<EOF
+guest_os=$GUEST_OS
+linux_distro=$META_LINUX_DISTRO
+vm_tools_rev=$VM_TOOLS_REV
+provisioned_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+golden_image=false
+golden_prepared_at=
+EOF
 
 echo ""
 echo "========================================"

@@ -199,10 +199,13 @@ STATE=$(echo "$VM_LINE" | awk '{print $NF}')
 CURRENT_DISK_GB=$(echo "$VM_LINE" | awk '{print $3}')
 CURRENT_USED_GB=$(echo "$VM_LINE" | awk '{print $4}')
 
-# --- Auto-detect guest OS ---
-if [[ -z "$GUEST_OS" ]]; then
-    if [[ "$CURRENT_DISK_GB" -lt 25 ]] 2>/dev/null; then
-        GUEST_OS="linux"
+# --- Determine guest OS: --linux flag wins; else read marker; else default macos ---
+if [[ "$GUEST_OS_EXPLICIT" == false ]]; then
+    META_FILE="$HOME/.tart/vms/$VM_NAME/vm-tools-meta"
+    if [[ -f "$META_FILE" ]]; then
+        GUEST_OS=$(grep '^guest_os=' "$META_FILE" | cut -d= -f2-)
+        # Marker is authoritative — skip the interactive confirm below.
+        GUEST_OS_EXPLICIT=true
     else
         GUEST_OS="macos"
     fi

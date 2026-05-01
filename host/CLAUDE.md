@@ -24,6 +24,7 @@ The git workflow (`bridge-vm-git.sh`) uses a layered SSH architecture:
 
 - **Host→VM**: Standard SSH key auth. The host's `~/.ssh/id_ed25519.pub` is installed to the VM during provisioning. No agent forwarding.
 - **VM→Host** (git only): VM generates its own dedicated key (`~/.ssh/mac-host-git`). The host's `authorized_keys` restricts this key with `command=`, `no-agent-forwarding`, `no-port-forwarding`, `no-pty` — only `git-upload-pack`/`git-receive-pack` on specific bare repos.
+- **VM→external** (Hetzner, etc.): VM generates its own `~/.ssh/id_ed25519` during `provision-vm.sh` (after step 10). Used for outbound SSH the VM initiates — e.g. kamal deploys to Hetzner.
 - **Host→GitHub**: Uses the user's own SSH key (configured in `~/.ssh/config` for `github.com`). VMs never connect to GitHub directly.
 - **Remote URLs**: Both scripts use SSH URLs (`git@github.com:`) for GitHub remotes on bare repos.
 

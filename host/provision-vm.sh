@@ -494,6 +494,11 @@ else
 fi
 echo "       Done (timezone: $HOST_TZ)."
 
+# Generate outbound SSH keypair so the VM can SSH to GitHub, Hetzner, etc.
+# Idempotent: preserves an existing key on local-base re-provisions.
+echo "        Ensuring outbound SSH keypair (id_ed25519) exists..."
+vm_exec_user "[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C '$HOST_USER@$VM_NAME'"
+
 # --- [11/22] Install Homebrew and git ---
 if [[ "$LOCAL_BASE" == false ]]; then
     echo "[11/22] Installing Homebrew and git..."

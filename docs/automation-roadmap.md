@@ -6,13 +6,13 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 
 ## One-off manual TODOs (existing infra)
 
-- [ ] **reader-buddy GAR cleanup policies** — set up via GCP console at https://console.cloud.google.com/artifacts/docker/reader-buddy-494902/us-west1/reader-buddy: keep-most-recent 10 tagged, delete tagged older than 90d, delete untagged older than 7d. We declined to set these at registry creation. Without them, GAR storage will accumulate over time.
+- [x] **reader-buddy GAR cleanup policies** — applied + enforcing (2026-04-30): `keep-recent-10`, `delete-old-tagged` (>90d), `delete-untagged` (>7d). Set via `gcloud artifacts repositories set-cleanup-policies reader-buddy --location=us-west1 --no-dry-run --policy=<file>`.
 
 ## Inventory of manual steps
 
 | Step | Frequency | Currently |
 |------|-----------|-----------|
-| Generate dev VM's outbound SSH keypair (`id_ed25519`) | Per-VM | Manual `ssh-keygen` |
+| Generate dev VM's outbound SSH keypair (`id_ed25519`) | Per-VM | **Automated** (`provision-vm.sh`, after step 10) |
 | Add dev VM's pubkey to Hetzner authorized_keys | Per-(VM, Hetzner-box) | SSH-pipe trick from host |
 | NOPASSWD sudo on Hetzner for admin user | Per-Hetzner-box | Manual one-liner |
 | Generate signing key + configure SSH signing + allowed_signers | Per-VM | Manual multi-step |
@@ -20,24 +20,16 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 | Service account + repo-level IAM + JSON key | Per-project | Web console |
 | Encrypt `.kamal/secrets.age` with age | Per-project | Manual `age -p` |
 | Template substitution into project repo (cp + sed) | Per-project | Manual recipe in template README |
-| Configure GAR cleanup policies (keep-N + age-based) | Per-project | Web console, easy to forget |
+| Configure GAR cleanup policies (keep-N + age-based) | Per-project | Manual `gcloud artifacts repositories set-cleanup-policies` (template policy in 2.1) |
 | Tag + verify-tag + deploy | Per-deploy | Already minimal |
 
 ## Tier 1 — high ROI, quick wins
 
 **Do these first.** Each is small, independent, immediately useful for the next dev VM rebuild and the next project.
 
-### 1.1 `provision-vm.sh`: generate dev VM's own `id_ed25519`
+### 1.1 `provision-vm.sh`: generate dev VM's own `id_ed25519` — **Done**
 
-Currently, only the host's pubkey gets installed for *inbound* SSH. The VM has no outbound keypair — anything that needs to SSH out (Hetzner, GitHub, etc.) requires manually generating one.
-
-**Change**: in `provision-vm.sh`, after user creation, generate `id_ed25519` if absent.
-
-```bash
-vm_exec_user "[ -f ~/.ssh/id_ed25519 ] || ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N '' -C \"\$(whoami)@\$(hostname)\""
-```
-
-~5 lines. Idempotent. Place near where the host's pubkey gets installed.
+Placed after step 10 (so the hostname is set; the key comment reads `<user>@<vm-name>`). Idempotent via `[ -f ~/.ssh/id_ed25519 ] ||`.
 
 ### 1.2 `provision-vm.sh`: signing key + SSH signing setup
 
@@ -118,14 +110,16 @@ gcloud iam service-accounts keys create /tmp/key.json \
 #   - Keep most-recent 10 tagged versions (rollback room)
 #   - Delete tagged versions older than 90 days
 #   - Delete untagged versions (build orphans) older than 7 days
-# These can be specified as a JSON file passed via `--policies` to
-# `gcloud artifacts repositories set-cleanup-policies`. Example structure:
+# Pass a JSON file via `--policy` to `gcloud artifacts repositories
+# set-cleanup-policies` (add `--no-dry-run` to enforce immediately).
+# Day-form durations ("90d", "7d") are accepted on input — the API
+# normalizes to seconds on read, but our source-of-truth stays human-readable.
 #   [{"name": "keep-recent-10", "action": {"type": "Keep"},
 #     "mostRecentVersions": {"keepCount": 10}},
 #    {"name": "delete-old-tagged", "action": {"type": "Delete"},
-#     "condition": {"tagState": "TAGGED", "olderThan": "7776000s"}},
+#     "condition": {"tagState": "TAGGED", "olderThan": "90d"}},
 #    {"name": "delete-untagged", "action": {"type": "Delete"},
-#     "condition": {"tagState": "UNTAGGED", "olderThan": "604800s"}}]
+#     "condition": {"tagState": "UNTAGGED", "olderThan": "7d"}}]
 
 # Base64 + pipe to dev VM, encrypt with age, shred local
 B64=$(base64 -i /tmp/key.json | tr -d '\n')
@@ -160,10 +154,10 @@ ssh "$VM" "ssh -o StrictHostKeyChecking=accept-new daviddeepdev@$HETZNER_IP echo
 
 When you come back to this:
 
-1. Tier 1.1 first (smallest, lowest risk, immediately useful)
+1. ~~Tier 1.1~~ — Done.
 2. Tier 1.2 (signing key — saves ~5 manual steps per VM)
 3. Tier 1.3 (scaffolding script — saves the long sed dance)
-4. *Then evaluate*: does Tier 2.1 (GAR automation) still feel painful enough to do? If yes, install gcloud and write that script. If no, defer.
+4. *Then evaluate*: does Tier 2.1 (GAR automation) still feel painful enough to do? `gcloud` is now installed on the host (used for the GAR cleanup-policy fix), so that lift is smaller.
 
 Each Tier 1 item is ~30-60 minutes of work plus testing. Tier 2.1 is ~1-2 hours including gcloud setup.
 

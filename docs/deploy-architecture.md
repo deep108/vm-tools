@@ -88,6 +88,7 @@ Setup:
 - One Artifact Registry repository per project, in a region close to Hetzner (us-west1 for Hillsboro, OR)
 - One GCP service account per project
 - IAM binding: `roles/artifactregistry.writer` granted at the **repository** level (not project level — keeps blast radius narrow)
+- Cleanup policies on the repo: `keep-recent-10`, `delete-old-tagged` (>90d), `delete-untagged` (>7d). Apply via `gcloud artifacts repositories set-cleanup-policies <repo> --location=<region> --no-dry-run --policy=<file.json>` (template policy JSON in `automation-roadmap.md` Tier 2.1).
 - JSON key generated, base64-encoded, stored in `.kamal/secrets.age`
 - Deploy.yml uses `_json_key_base64` as the username; KAMAL_REGISTRY_PASSWORD env var carries the base64 contents
 

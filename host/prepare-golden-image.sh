@@ -154,9 +154,17 @@ fi
 echo "      Done."
 
 # --- [5/9] Package manager / Homebrew cache ---
+# `apt-get clean` only empties /var/cache/apt/archives — safe.
+# We deliberately do NOT run `apt-get autoremove` here: bootstrap-linux.sh
+# does `apt-get upgrade -y`, which can install a newer kernel and leave the
+# running kernel "auto-removable". autoremove would then remove the old
+# kernel's /boot files; if `update-grub` doesn't regenerate grub.cfg cleanly,
+# the next boot drops into the GRUB rescue prompt with no kernel to load.
+# Source VM never reboots before tart stop, so the breakage only surfaces in
+# clones — making it a pernicious failure mode. Keep it simple: cache-only.
 echo "[5/9] Cleaning caches..."
 if [[ "$GUEST_OS" == "linux" ]]; then
-    vm_ssh "sudo bash -c 'apt-get clean -qq && apt-get autoremove -y -qq'" 2>/dev/null || true
+    vm_ssh "sudo bash -c 'apt-get clean -qq'" 2>/dev/null || true
     # Homebrew may have been installed during bootstrap
     vm_ssh "bash -l -c 'command -v brew &>/dev/null && brew cleanup --prune=all 2>/dev/null || true'" || true
 else

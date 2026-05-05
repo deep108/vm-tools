@@ -22,6 +22,9 @@ For context on the deploy architecture itself, see [`deploy-architecture.md`](de
 | Template substitution into project repo (cp + sed) | Per-project | **Automated** (`scaffold-deploy-project.sh`) |
 | Configure GAR cleanup policies (keep-N + age-based) | Per-project | Manual `gcloud artifacts repositories set-cleanup-policies` (template policy in 2.1) |
 | Tag + verify-tag + deploy | Per-deploy | Already minimal |
+| `secscan` user + GAR-reader key + trivy + cron on Hetzner | Per-Hetzner-box | Manual (Tier 2.3) |
+| `kamal-<project>` SSH access to `secscan@hetzner` (restricted) | Per-(project, Hetzner-box) | Manual (Tier 2.3) |
+| `bin/deploy` writes deployed-tag file to `secscan@hetzner` | Per-deploy | Not implemented yet (Tier 2.3) |
 
 ## Tier 1 — high ROI, quick wins
 
@@ -107,6 +110,16 @@ ssh "$VM" "ssh -o StrictHostKeyChecking=accept-new daviddeepdev@$HETZNER_IP echo
 ```
 
 ~15 lines. Worth it if you'll have multiple dev VMs or Hetzner boxes.
+
+### 2.3 `secscan` SSH wiring for image-vuln tag files
+
+`security-scanning-setup.md` defines a weekly trivy scan on Hetzner that reads deployed-tag files at `/var/lib/secscan/tags/<app>.tag`, written by each `bin/deploy` over SSH. Three pieces need plumbing:
+
+- **Per-Hetzner-box** (one-time): create the `secscan` user, install trivy via the upstream apt repo, drop the GAR-reader SA key, install `/usr/local/sbin/secscan-images` + the weekly `/etc/cron.d/secscan-images` entry. Natural home is `harden-hetzner.sh` (Tier 3) or a dedicated `setup-image-scanning.sh`.
+- **Per-(project, Hetzner-box)**: each `kamal-<project>` user needs SSH access to `secscan@hetzner` with a `command="tee /var/lib/secscan/tags/<app>.tag"` authorized_keys restriction. Belongs in `bin/bootstrap-server` so it's set up alongside the kamal user.
+- **Per-deploy**: `bin/deploy` writes its just-deployed tag over that restricted SSH after a successful `kamal deploy`. Belongs in the `templates/deploy-project/bin/deploy` template (small addition, ~3 lines).
+
+Until this lands, the weekly cron has nothing to scan. Manually populating one `<app>.tag` file on Hetzner per deploy works as a stopgap but defeats the point — defer turning the cron on until the deploy-side write is in place.
 
 ## Tier 3 — defer or skip
 

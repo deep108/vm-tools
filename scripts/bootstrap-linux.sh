@@ -22,9 +22,20 @@ sudo apt-get install -y \
     git \
     locales \
     procps \
+    unattended-upgrades \
     wget \
     gpg \
     zsh
+
+# Enable unattended-upgrades for the security pocket. Defaults are what we
+# want on a dev VM: security-pocket only, auto-reboot off, no mail. Writing
+# 20auto-upgrades directly because `dpkg-reconfigure -plow unattended-upgrades`
+# is interactive. The apt-daily{,-upgrade}.timer units have Persistent=true,
+# so they fire on next boot when the VM has been stopped through a window.
+sudo tee /etc/apt/apt.conf.d/20auto-upgrades >/dev/null <<'EOF'
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+EOF
 
 # Configure UTF-8 locale (required for starship powerline glyphs)
 if ! locale -a 2>/dev/null | grep -qi 'en_US.utf8'; then

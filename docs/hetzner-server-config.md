@@ -4,6 +4,12 @@ Notes on manually-applied configuration on the Hetzner Cloud box(es) hosting dep
 
 Append entries (with date) rather than replacing — this is a running log, not a recipe.
 
+## Known Hetzner Cloud constraints
+
+Persistent facts about Hetzner Cloud that affect anything we deploy or run on these boxes. Not date-stamped — these are platform-level, not change-log entries.
+
+- **Outbound SMTP port 25 is blocked by default.** Hetzner Cloud blocks outbound :25 to fight botnet abuse; the unblock is gated on a support request. Use submission auth on **465 (TLS)** or **587 (STARTTLS)** instead — works without an unblock. Applies to anything sending mail from a Hetzner box: app transactional mail, alert pipes (`mail`, `msmtp`), monitoring notifications. Transactional APIs (Postmark, Mailgun, SES, SendGrid) sidestep this entirely since they're HTTPS, not SMTP.
+
 ## reader-buddy host (only Hetzner box currently)
 
 ### 2026-05-02 — `debsecan` installed

@@ -9,6 +9,13 @@ Scripts for managing macOS and Linux VMs using **Tart** (Apple Silicon), provisi
 - Scripts with optional VM name argument use `lib/pick-vm.sh` for interactive selection
 - Steps that can fail on re-run should be idempotent (check-then-act pattern with yellow `!` for skipped, green `✓` for done)
 
+## How dev VMs are used in practice
+
+- **Per-project**: there's typically one dev VM per project, often named after the project (`scaffold-deploy-project.sh` matches VM name to project name as a convenience). Multiple VMs coexist on the host; only one is usually running at a time.
+- **Intermittent uptime**: dev VMs are stopped when not actively in use, often for days or weeks at a stretch. They run only when working on that project. Don't assume always-on.
+- **Hetzner is the only 24/7 machine** in the architecture. Any "scheduled work" recommendation that needs to fire reliably (cron, polling, health checks) should either live on Hetzner, or use a systemd timer with `Persistent=true` on the dev VM so it fires on next boot when a window was missed.
+- **Ephemeral by design**: the architecture in `docs/deploy-architecture.md` treats dev VM rebuild as a first-class option, not a last resort. `provision-vm.sh` rebuilds in ~30 minutes; chezmoi reinstates dotfiles + tools. Suggest "rebuild from clean" as the recovery path for compromise/corruption rather than scanning/cleanup.
+
 ## tart exec Gotchas
 
 - Runs as `admin` user (passwordless sudo). For user context: `sudo -Hu <user> zsh -l -c '...'`
